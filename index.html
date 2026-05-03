@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Woot! Deal Alert Bot — Live Deal Monitor</title>
+    <meta name="description" content="Real-time deal monitoring and alert system for Woot.com deals. Get notified about the best discounts instantly.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔔</text></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#6366f1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+</head>
+<body>
+
+
+    <div class="app-wrapper">
+        <!-- Animated background -->
+        <div class="bg-gradient"></div>
+        <div class="bg-grid"></div>
+
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="logo-container">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                            <line x1="12" y1="2" x2="12" y2="4" class="bell-clapper"/>
+                        </svg>
+                    </div>
+                    <div class="logo-text">
+                        <h1>Woot! <span class="accent">Alert Bot</span></h1>
+                        <p class="tagline">Real-time deal monitoring</p>
+                    </div>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="status-indicator" id="status-indicator">
+                    <div class="status-dot"></div>
+                    <span id="status-text">Initializing...</span>
+                    <span class="header-countdown-badge" id="header-countdown-wrap">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        <span id="header-countdown">--:--</span>
+                    </span>
+                </div>
+                <button class="btn btn-icon" id="btn-settings" title="Settings">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+                <button class="btn btn-primary" id="btn-refresh">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    <span>Scan Now</span>
+                </button>
+                <a href="/ntfy-logs.html" class="btn btn-icon" title="ntfy.sh Logs" style="color:var(--text-muted)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                </a>
+                <button class="btn btn-icon" id="btn-export-csv" title="Export Deals to CSV" style="color:var(--text-muted)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+                <a href="/logout" class="btn btn-icon" title="Logout" style="color:var(--text-muted)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                </a>
+            </div>
+        </header>
+
+        <!-- Settings Panel -->
+        <div class="settings-panel" id="settings-panel">
+            <div class="settings-overlay" id="settings-overlay"></div>
+            <div class="settings-content">
+                <div class="settings-header">
+                    <h2>Alert Configuration</h2>
+                    <button class="btn btn-icon btn-close-settings" id="btn-close-settings">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+
+                <div class="settings-body">
+                    <!-- Tabs -->
+                    <div class="settings-tabs">
+                        <button class="settings-tab active" data-tab="filters">🎯 Filters</button>
+                        <button class="settings-tab" data-tab="notifications">🔔 Notifications</button>
+                        <button class="settings-tab" data-tab="advanced">⚙️ Advanced</button>
+                    </div>
+
+                    <!-- Tab: Filters -->
+                    <div class="settings-tab-content active" id="tab-filters">
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                            Minimum Discount (%)
+                        </label>
+                        <div class="range-input-group">
+                            <input type="range" id="min-discount" min="0" max="90" value="40" class="range-input" aria-label="Minimum discount percentage">
+                            <span class="range-value" id="min-discount-value">40%</span>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                            Minimum Price ($)
+                        </label>
+                        <div class="range-input-group">
+                            <input type="range" id="min-price" min="0" max="500" value="0" step="5" class="range-input" aria-label="Minimum price in dollars">
+                            <span class="range-value" id="min-price-value">$0</span>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                            Maximum Price ($)
+                        </label>
+                        <div class="range-input-group">
+                            <input type="range" id="max-price" min="10" max="2000" value="200" step="10" class="range-input" aria-label="Maximum price in dollars">
+                            <span class="range-value" id="max-price-value">$200</span>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                            Categories to Monitor
+                        </label>
+                        <div class="category-chips" id="category-chips">
+                            <button class="chip active" data-category="All">All Deals</button>
+                            <button class="chip" data-category="Electronics">Electronics</button>
+                            <button class="chip" data-category="Computers">Computers</button>
+                            <button class="chip" data-category="Home">Home &amp; Kitchen</button>
+                            <button class="chip" data-category="Tools">Tools &amp; Garden</button>
+                            <button class="chip" data-category="Sports">Sports</button>
+                            <button class="chip" data-category="Gourmet">Grocery</button>
+                            <button class="chip" data-category="Clearance">Clearance</button>
+                            <button class="chip" data-category="Shirts">Shirts</button>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            Auto-refresh Interval
+                        </label>
+                        <select id="refresh-interval" class="select-input">
+                            <option value="60">Every 1 minute</option>
+                            <option value="120">Every 2 minutes</option>
+                            <option value="300" selected>Every 5 minutes</option>
+                            <option value="600">Every 10 minutes</option>
+                            <option value="0">Manual only</option>
+                        </select>
+                    </div>
+                    </div>
+
+                    <!-- Tab: Notifications -->
+                    <div class="settings-tab-content" id="tab-notifications">
+                    <div class="setting-group">
+                        <label class="setting-label toggle-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"/></svg>
+                            Desktop Notifications
+                            <div class="toggle active" id="toggle-notifications" role="switch" aria-checked="true" tabindex="0" aria-label="Desktop Notifications">
+                                <div class="toggle-track">
+                                    <div class="toggle-thumb"></div>
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label toggle-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                            Sound Alerts
+                            <div class="toggle" id="toggle-sound" role="switch" aria-checked="false" tabindex="0" aria-label="Sound Alerts">
+                                <div class="toggle-track">
+                                    <div class="toggle-thumb"></div>
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <hr class="setting-divider">
+
+                    <div class="setting-group">
+                        <label class="setting-label toggle-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                            ntfy.sh Push Notifications
+                            <div class="toggle" id="toggle-ntfy" role="switch" aria-checked="false" tabindex="0" aria-label="ntfy.sh Push Notifications">
+                                <div class="toggle-track">
+                                    <div class="toggle-thumb"></div>
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="setting-group" id="ntfy-settings-group">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                            ntfy.sh Topic
+                        </label>
+                        <input type="text" id="ntfy-topic" class="text-input" placeholder="e.g. my-woot-deals">
+                        <p class="setting-hint">Install the <a href="https://ntfy.sh" target="_blank">ntfy app</a> and subscribe to the same topic.</p>
+                    </div>
+
+                    <div class="setting-group" id="ntfy-discount-group">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                            ntfy.sh Minimum Discount (%)
+                        </label>
+                        <div class="range-input-group">
+                            <input type="range" id="ntfy-min-discount" min="0" max="90" value="40" class="range-input" aria-label="Minimum discount for ntfy.sh">
+                            <span class="range-value" id="ntfy-min-discount-value">40%</span>
+                        </div>
+                        <p class="setting-hint">Keyword matches bypass this threshold. Respects Categories.</p>
+                    </div>
+
+                    <div class="setting-group" id="ntfy-quiet-group">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 18a5 5 0 0 0-10 0"/><line x1="12" y1="2" x2="12" y2="9"/><line x1="4.22" y1="10.22" x2="5.64" y2="11.64"/><line x1="1" y1="18" x2="3" y2="18"/><line x1="21" y1="18" x2="23" y2="18"/><line x1="18.36" y1="11.64" x2="19.78" y2="10.22"/><line x1="23" y1="22" x2="1" y2="22"/><polyline points="8 6 12 2 16 6"/></svg>
+                            Quiet Hours (no ntfy.sh push)
+                        </label>
+                        <div class="quiet-hours-row">
+                            <div class="quiet-input">
+                                <label for="quiet-start">From</label>
+                                <input type="time" id="quiet-start" class="text-input">
+                            </div>
+                            <span class="quiet-sep">→</span>
+                            <div class="quiet-input">
+                                <label for="quiet-end">Until</label>
+                                <input type="time" id="quiet-end" class="text-input">
+                            </div>
+                        </div>
+                        <p class="setting-hint">Leave empty to disable. Supports overnight (e.g., 23:00 → 07:00).</p>
+                    </div>
+
+                    <hr class="setting-divider">
+
+                    <div class="setting-group">
+                        <label class="setting-label toggle-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                            Discord Webhook
+                            <div class="toggle" id="toggle-discord" role="switch" aria-checked="false" tabindex="0" aria-label="Discord Webhook">
+                                <div class="toggle-track">
+                                    <div class="toggle-thumb"></div>
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="setting-group" id="discord-settings-group" style="display:none">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                            Webhook URL
+                        </label>
+                        <input type="text" id="discord-webhook" class="text-input" placeholder="https://discord.com/api/webhooks/...">
+                        <div style="display:flex;gap:8px;align-items:center">
+                            <p class="setting-hint" style="flex:1">Go to Server Settings → Integrations → Webhooks → New Webhook → Copy URL</p>
+                            <button class="btn btn-secondary" id="btn-test-discord" style="padding:6px 12px;font-size:0.75rem;white-space:nowrap">🧪 Test</button>
+                        </div>
+                    </div>
+                    </div>
+
+                    <!-- Tab: Advanced -->
+                    <div class="settings-tab-content" id="tab-advanced">
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-5m-1.414-9.414a2 2 0 1 1 2.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                            Keyword Buttons
+                        </label>
+                        <div class="keyword-add-row">
+                            <input type="text" id="keyword-input" class="text-input" placeholder="Type a keyword and press Enter">
+                            <button class="btn btn-primary btn-add-keyword" id="btn-add-keyword">+ Add</button>
+                        </div>
+                        <div class="keyword-tags-container" id="keyword-tags-settings"></div>
+                        <p class="setting-hint">Each keyword becomes a filter button on the main page (OR logic).</p>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                            Woot API Key
+                        </label>
+                        <input type="password" id="api-key" class="text-input" placeholder="Paste your API key here...">
+                        <p class="setting-hint">Get a free key at <a href="https://forums.woot.com/t/request-developer-api-key/734283" target="_blank">Woot Forums</a></p>
+                    </div>
+                    </div>
+                </div>
+
+                <div class="settings-footer">
+                    <button class="btn btn-secondary" id="btn-reset-settings">Reset Defaults</button>
+                    <button class="btn btn-primary" id="btn-save-settings">Save & Apply</button>
+                </div>
+            </div>
+            </div>
+        </div>
+
+        <!-- Stats Bar -->
+        <div class="stats-bar">
+            <div class="stat-card">
+                <div class="stat-icon hot">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-total">—</span>
+                    <span class="stat-label">Active Deals</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon fire">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-hot">—</span>
+                    <span class="stat-label">Hot Deals (≥50%)</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon alert">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-alerts">—</span>
+                    <span class="stat-label">Alerts Triggered</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon time">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value" id="stat-last-scan">Never</span>
+                    <span class="stat-label">Last Scan</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Alert Feed -->
+            <section class="alerts-section" id="alerts-section" style="display:none;">
+                <div class="section-header">
+                    <h2>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                        New Alerts
+                    </h2>
+                    <button class="btn btn-ghost" id="btn-clear-alerts">Clear All</button>
+                </div>
+                <div class="alerts-feed" id="alerts-feed"></div>
+            </section>
+
+            <!-- Filters -->
+            <div class="filter-bar">
+                <div class="search-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input type="text" id="search-input" placeholder="Search deals..." aria-label="Search deals">
+                </div>
+                <div class="filter-chips">
+                    <button class="filter-chip active" data-filter="all">All</button>
+                    <button class="filter-chip" data-filter="hot">🔥 Hot (≥60%)</button>
+                    <button class="filter-chip" data-filter="great">⭐ Great (≥40%)</button>
+                    <button class="filter-chip" data-filter="new">🆕 New</button>
+                    <button class="filter-chip" data-filter="ending">⏰ Ending Soon</button>
+                    <button class="filter-chip" data-filter="warehouse">🏭 Warehouse</button>
+                    <button class="filter-chip" data-filter="favorites">💖 Favorites</button>
+                </div>
+                <span class="deals-count" id="deals-count"></span>
+                <div class="sort-dropdown">
+                    <select id="sort-select" class="select-input-small" aria-label="Sort deals by">
+                        <option value="discount-desc">Highest Discount</option>
+                        <option value="price-asc">Lowest Price</option>
+                        <option value="price-desc">Highest Price</option>
+                        <option value="newest">Newest First</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Keyword Filter Buttons -->
+            <div class="keyword-filter-bar" id="keyword-filter-bar" style="display:none;">
+                <div class="keyword-filter-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                    Keywords:
+                </div>
+                <div class="keyword-buttons" id="keyword-buttons-main"></div>
+            </div>
+
+            <!-- Deals Grid -->
+            <div class="deals-grid" id="deals-grid">
+                <!-- Loading state -->
+                <div class="loading-state" id="loading-state">
+                    <div class="loader">
+                        <div class="loader-ring"></div>
+                        <div class="loader-ring"></div>
+                        <div class="loader-ring"></div>
+                    </div>
+                    <p>Scanning Woot! for deals...</p>
+                </div>
+            </div>
+
+            <!-- Empty state -->
+            <div class="empty-state" id="empty-state" style="display:none;">
+                <div class="empty-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                </div>
+                <h3>No deals match your filters</h3>
+                <p>Try adjusting your search or filter criteria</p>
+            </div>
+        </main>
+
+        <!-- Countdown is in the header badge, no bottom bar needed -->
+        <span id="scan-timer" style="display:none"><span id="countdown">--:--</span></span>
+
+        <!-- Toast container -->
+        <div class="toast-container" id="toast-container"></div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      }
+    </script>
+</body>
+</html>

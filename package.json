@@ -1,0 +1,15 @@
+{
+  "name": "woot-alert-bot",
+  "version": "1.0.0",
+  "description": "Real-time Woot deal monitoring bot with ntfy.sh & Discord alerts",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["woot", "deals", "alerts", "monitor", "ntfy", "discord"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

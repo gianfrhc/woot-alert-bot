@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Sensitive data — NEVER commit these
+auth.json
+sessions.json
+settings.json
+
+# Logs
+logs/
+*.log
+ntfy-logs.json
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+
+# Test files
+test_api.py

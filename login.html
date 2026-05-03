@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — Woot! Deal Alert Bot</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔔</text></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0b14;
+            --bg-secondary: #12131f;
+            --bg-card: #181a2a;
+            --border: rgba(255,255,255,0.06);
+            --border-active: rgba(99,102,241,0.4);
+            --text-primary: #f0f0f5;
+            --text-secondary: #9ca3af;
+            --text-muted: #8b929e;
+            --accent: #6366f1;
+            --accent-light: #818cf8;
+            --accent-glow: rgba(99,102,241,0.25);
+            --danger: #ef4444;
+            --radius: 12px;
+            --radius-sm: 8px;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            -webkit-font-smoothing: antialiased;
+        }
+        .bg-gradient {
+            position: fixed; inset: 0;
+            background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99,102,241,0.15), transparent),
+                        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(236,72,153,0.08), transparent);
+            pointer-events: none;
+        }
+        .bg-grid {
+            position: fixed; inset: 0;
+            background-image: linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                              linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 48px 48px;
+            pointer-events: none;
+        }
+        .login-card {
+            position: relative; z-index: 1;
+            width: min(420px, 90vw);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px 36px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+            animation: cardIn 0.5s ease-out;
+        }
+        @keyframes cardIn { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+        .logo {
+            display: flex; align-items: center; gap: 14px;
+            margin-bottom: 32px; justify-content: center;
+        }
+        .logo-icon {
+            width: 52px; height: 52px;
+            background: linear-gradient(135deg, var(--accent), #a855f7);
+            border-radius: var(--radius);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem;
+        }
+        .logo-text h1 { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.5px; }
+        .logo-text .accent {
+            background: linear-gradient(135deg, var(--accent-light), #c084fc);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .logo-text p { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 500; }
+
+        .form-group { margin-bottom: 20px; }
+        .form-label {
+            display: block; font-size: 0.82rem; font-weight: 600;
+            color: var(--text-secondary); margin-bottom: 8px;
+        }
+        .form-input {
+            width: 100%; padding: 12px 16px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 0.92rem; font-family: inherit;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .form-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+        .form-input::placeholder { color: var(--text-muted); }
+
+        .btn-login {
+            width: 100%; padding: 14px;
+            background: linear-gradient(135deg, var(--accent), #7c3aed);
+            color: #fff; border: none;
+            border-radius: var(--radius-sm);
+            font-size: 0.92rem; font-weight: 700;
+            font-family: inherit; cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 2px 12px var(--accent-glow);
+        }
+        .btn-login:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px var(--accent-glow);
+        }
+        .btn-login:active { transform: translateY(0); }
+        .btn-login:disabled {
+            opacity: 0.6; pointer-events: none;
+        }
+
+        .error-msg {
+            display: none;
+            padding: 10px 14px;
+            background: rgba(239,68,68,0.1);
+            border: 1px solid rgba(239,68,68,0.3);
+            border-radius: var(--radius-sm);
+            color: var(--danger);
+            font-size: 0.82rem; font-weight: 500;
+            margin-bottom: 16px;
+            animation: shake 0.4s ease-out;
+        }
+        .error-msg.visible { display: block; }
+        @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
+
+        .footer-text {
+            text-align: center; margin-top: 24px;
+            font-size: 0.72rem; color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-gradient"></div>
+    <div class="bg-grid"></div>
+
+    <div class="login-card">
+        <div class="logo">
+            <div class="logo-icon">🔔</div>
+            <div class="logo-text">
+                <h1>Woot! <span class="accent">Alert Bot</span></h1>
+                <p>Secure Access</p>
+            </div>
+        </div>
+
+        <form id="login-form">
+            <div id="error-msg" class="error-msg">Invalid password</div>
+
+            <div class="form-group">
+                <label class="form-label" for="password">Password</label>
+                <input type="password" id="password" class="form-input" placeholder="Enter your password" autofocus autocomplete="current-password" required>
+            </div>
+
+            <button type="submit" class="btn-login" id="btn-login">
+                Sign In
+            </button>
+        </form>
+
+        <p class="footer-text">Protected dashboard — unauthorized access prohibited</p>
+    </div>
+
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('btn-login');
+            const errEl = document.getElementById('error-msg');
+            const password = document.getElementById('password').value;
+
+            btn.disabled = true;
+            btn.textContent = 'Signing in...';
+            errEl.classList.remove('visible');
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+
+                if (res.ok) {
+                    window.location.href = '/';
+                } else {
+                    const data = await res.json();
+                    errEl.textContent = data.error || 'Invalid password';
+                    errEl.classList.add('visible');
+                    document.getElementById('password').select();
+                }
+            } catch (err) {
+                errEl.textContent = 'Connection error';
+                errEl.classList.add('visible');
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Sign In';
+        });
+    </script>
+</body>
+</html>

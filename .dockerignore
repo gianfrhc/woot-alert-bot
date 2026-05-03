@@ -1,0 +1,13 @@
+.git
+.gitignore
+node_modules
+logs
+*.log
+ntfy-logs.json
+auth.json
+sessions.json
+settings.json
+test_api.py
+README.md
+.vscode
+.idea
