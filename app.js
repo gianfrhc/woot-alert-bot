@@ -13,6 +13,9 @@ const state = {
     refreshInterval: 300,
     categories: ['All'],
     keywordButtons: [],
+    blockedWords: [],
+    ntfyAllowOpenBox: false,
+    ntfyAllowRefurbished: false,
     soundEnabled: false,
     notificationsEnabled: true,
     ntfyEnabled: false,
@@ -70,6 +73,19 @@ async function loadSettings() {
       try { Object.assign(state.settings, JSON.parse(saved)); } catch(e) {}
     }
   }
+  // DATA-02: Load seenOfferIds from server first, then merge localStorage
+  try {
+    const seenRes = await fetch('/api/seen-ids');
+    if (seenRes.ok) {
+      const serverIds = await seenRes.json();
+      if (Array.isArray(serverIds)) {
+        serverIds.forEach(id => state.seenOfferIds.add(id));
+        console.log(`[SeenIds] Loaded ${serverIds.length} from server`);
+      }
+    }
+  } catch (e) {
+    console.warn('[SeenIds] Server unavailable, using localStorage only');
+  }
   const seen = localStorage.getItem('woot-seen-ids');
   if (seen) {
     try { JSON.parse(seen).forEach(id => state.seenOfferIds.add(id)); } catch(e) {}
@@ -105,6 +121,15 @@ function saveSettings() {
 function saveSeenIds() {
   const arr = [...state.seenOfferIds].slice(-2000);
   localStorage.setItem('woot-seen-ids', JSON.stringify(arr));
+  // DATA-02: Sync to server (debounced via existing save mechanism)
+  clearTimeout(state._seenSaveTimeout);
+  state._seenSaveTimeout = setTimeout(() => {
+    fetch('/api/seen-ids', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(arr)
+    }).catch(() => {});
+  }, 1000);
 }
 
 function applySettingsToUI() {
@@ -130,7 +155,14 @@ function applySettingsToUI() {
   const ntfyVisible = s.ntfyEnabled ? '' : 'none';
   document.getElementById('ntfy-settings-group').style.display = ntfyVisible;
   document.getElementById('ntfy-discount-group').style.display = ntfyVisible;
+  document.getElementById('ntfy-condition-group').style.display = ntfyVisible;
   document.getElementById('ntfy-quiet-group').style.display = ntfyVisible;
+  document.getElementById('ntfy-blocked-group').style.display = ntfyVisible;
+  // Condition toggles
+  document.getElementById('toggle-allow-openbox').classList.toggle('active', !!s.ntfyAllowOpenBox);
+  document.getElementById('toggle-allow-openbox').setAttribute('aria-checked', !!s.ntfyAllowOpenBox);
+  document.getElementById('toggle-allow-refurbished').classList.toggle('active', !!s.ntfyAllowRefurbished);
+  document.getElementById('toggle-allow-refurbished').setAttribute('aria-checked', !!s.ntfyAllowRefurbished);
   // Discord
   document.getElementById('toggle-discord').classList.toggle('active', s.discordEnabled);
   document.getElementById('toggle-discord').setAttribute('aria-checked', s.discordEnabled);
@@ -141,6 +173,7 @@ function applySettingsToUI() {
   });
   renderKeywordTagsSettings();
   renderKeywordButtonsMain();
+  renderBlockedWordsSettings();
 }
 
 // ===== EVENTS =====
@@ -174,7 +207,7 @@ function bindEvents() {
     document.getElementById('ntfy-min-discount-value').textContent = e.target.value + '%';
   });
 
-  ['toggle-sound','toggle-notifications','toggle-ntfy','toggle-discord'].forEach(id => {
+  ['toggle-sound','toggle-notifications','toggle-ntfy','toggle-discord','toggle-allow-openbox','toggle-allow-refurbished'].forEach(id => {
     const el = document.getElementById(id);
     const toggle = () => {
       el.classList.toggle('active');
@@ -184,7 +217,9 @@ function bindEvents() {
         const vis = el.classList.contains('active') ? '' : 'none';
         document.getElementById('ntfy-settings-group').style.display = vis;
         document.getElementById('ntfy-discount-group').style.display = vis;
+        document.getElementById('ntfy-condition-group').style.display = vis;
         document.getElementById('ntfy-quiet-group').style.display = vis;
+        document.getElementById('ntfy-blocked-group').style.display = vis;
       }
       if (id === 'toggle-discord') {
         document.getElementById('discord-settings-group').style.display = el.classList.contains('active') ? '' : 'none';
@@ -229,6 +264,12 @@ function bindEvents() {
     if (e.key === 'Enter') { e.preventDefault(); addKeywordFromInput(); }
   });
 
+  // Blocked words system
+  document.getElementById('btn-add-blocked').addEventListener('click', () => addBlockedWordFromInput());
+  document.getElementById('blocked-word-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addBlockedWordFromInput(); }
+  });
+
   // Clickable stat cards
   bindStatCards();
 
@@ -245,7 +286,7 @@ function bindEvents() {
   // Discord test button
   document.getElementById('btn-test-discord').addEventListener('click', async () => {
     const url = document.getElementById('discord-webhook').value.trim();
-    if (!url || !url.startsWith('https://discord.com/api/webhooks/')) {
+    if (!url || !(url.startsWith('https://discord.com/api/webhooks/') || url.startsWith('https://discordapp.com/api/webhooks/'))) {
       showToast('Enter a valid Discord webhook URL first', 'error');
       return;
     }
@@ -318,6 +359,8 @@ function saveSettingsFromUI() {
   s.ntfyMinDiscount = parseInt(document.getElementById('ntfy-min-discount').value);
   s.quietStart = document.getElementById('quiet-start').value;
   s.quietEnd = document.getElementById('quiet-end').value;
+  s.ntfyAllowOpenBox = document.getElementById('toggle-allow-openbox').classList.contains('active');
+  s.ntfyAllowRefurbished = document.getElementById('toggle-allow-refurbished').classList.contains('active');
   s.discordEnabled = document.getElementById('toggle-discord').classList.contains('active');
   s.discordWebhook = document.getElementById('discord-webhook').value.trim();
   // F-11: Validate ntfy topic
@@ -337,7 +380,7 @@ function saveSettingsFromUI() {
 
 function resetSettings() {
   if (!confirm('Reset all settings? This will delete your keywords, ntfy topic, and API key.')) return;
-  state.settings = { minDiscount:30, minPrice:0, maxPrice:300, refreshInterval:300, categories:['All'], keywordButtons:[], soundEnabled:false, notificationsEnabled:true, ntfyEnabled:false, ntfyTopic:'', ntfyMinDiscount:40, quietStart:'', quietEnd:'', discordEnabled:false, discordWebhook:'', apiKey:'' };
+  state.settings = { minDiscount:30, minPrice:0, maxPrice:300, refreshInterval:300, categories:['All'], keywordButtons:[], blockedWords:[], ntfyAllowOpenBox:false, ntfyAllowRefurbished:false, soundEnabled:false, notificationsEnabled:true, ntfyEnabled:false, ntfyTopic:'', ntfyMinDiscount:40, quietStart:'', quietEnd:'', discordEnabled:false, discordWebhook:'', apiKey:'' };
   state.activeKeywords.clear();
   saveSettings();
   applySettingsToUI();
@@ -438,6 +481,72 @@ function renderKeywordButtonsMain() {
   });
   const clearEl = document.getElementById('btn-clear-keywords');
   if (clearEl) clearEl.addEventListener('click', clearKeywordFilters);
+}
+
+// ===== BLOCKED WORDS =====
+function addBlockedWordFromInput() {
+  const input = document.getElementById('blocked-word-input');
+  const text = input.value.trim().toLowerCase();
+  if (!text) return;
+  if (text.length < 2) { showToast('Blocked word must be at least 2 characters', 'error'); return; }
+  if (text.length > 30) { showToast('Blocked word must be 30 characters or less', 'error'); return; }
+  if (!state.settings.blockedWords) state.settings.blockedWords = [];
+  if (state.settings.blockedWords.some(w => w.toLowerCase() === text)) {
+    showToast('Word already blocked', 'info');
+    return;
+  }
+  state.settings.blockedWords.push(text);
+  input.value = '';
+  saveSettings();
+  renderBlockedWordsSettings();
+  showToast(`"${text}" added to blocked words`, 'success');
+}
+
+function removeBlockedWord(word) {
+  state.settings.blockedWords = (state.settings.blockedWords || []).filter(w => w !== word);
+  saveSettings();
+  renderBlockedWordsSettings();
+}
+
+function renderBlockedWordsSettings() {
+  const container = document.getElementById('blocked-words-tags');
+  if (!container) return;
+  const words = state.settings.blockedWords || [];
+  if (!words.length) {
+    container.innerHTML = '<span class="keyword-placeholder">No blocked words yet</span>';
+    return;
+  }
+  container.innerHTML = words.map(w =>
+    `<span class="keyword-tag blocked-tag">${escHtml(w)}<button class="tag-remove" data-word="${escHtml(w)}" title="Remove">×</button></span>`
+  ).join('');
+  container.querySelectorAll('.tag-remove').forEach(btn => {
+    btn.addEventListener('click', () => removeBlockedWord(btn.dataset.word));
+  });
+}
+
+function isBlockedDeal(deal) {
+  const blocked = state.settings.blockedWords || [];
+  if (!blocked.length) return false;
+  const titleLow = (deal.title || '').toLowerCase();
+  const subtitleLow = (deal.subtitle || '').toLowerCase();
+  return blocked.some(w => titleLow.includes(w) || subtitleLow.includes(w));
+}
+
+function isAllowedCondition(deal) {
+  const cond = (deal.condition || '').toLowerCase().trim();
+  // No condition or "New" → always allowed
+  if (!cond || cond === 'new') return true;
+  const s = state.settings;
+  // Open Box variants
+  if (cond.includes('open box') || cond.includes('openbox')) {
+    return !!s.ntfyAllowOpenBox;
+  }
+  // Refurbished variants
+  if (cond.includes('refurbished') || cond.includes('refurb')) {
+    return !!s.ntfyAllowRefurbished;
+  }
+  // Unknown condition → allow by default
+  return true;
 }
 
 // ===== SCANNING =====
@@ -678,7 +787,9 @@ function generateDemoDeals() {
 // ===== ALERTS =====
 function checkAlerts(newDeals) {
   const s = state.settings;
-  // Use ACTIVE (selected) keywords for filtering — not all keyword buttons
+  // BUG-03: Use ALL defined keywords for ntfy/Discord (not just UI-active ones)
+  const allDefinedKws = (s.keywordButtons || []).map(k => k.toLowerCase());
+  // UI-active keywords still used for dashboard alerts
   const activeKws = [...state.activeKeywords];
 
   // Helper: check if deal matches active keywords (OR logic)
@@ -699,26 +810,35 @@ function checkAlerts(newDeals) {
     if (triggered) addAlert(deal);
 
     // === ntfy.sh — Independent evaluation ===
+    // BUG-03: Uses ALL defined keywords (not just UI-active)
     // Keyword match → always notify (even 0% discount)
-    // No keywords active → use ntfyMinDiscount threshold
-    // Respects quiet hours
-    if (s.ntfyEnabled && s.ntfyTopic && !deal.isSoldOut && !isQuietHours()) {
-      const hasActiveKws = activeKws.length > 0;
-      const kwMatch = hasActiveKws && matchesKeywords(deal);
+    // No keywords defined → use ntfyMinDiscount threshold
+    // Respects quiet hours, blocked words, and condition filter
+    if (s.ntfyEnabled && s.ntfyTopic && !deal.isSoldOut && !isQuietHours() && !isBlockedDeal(deal) && isAllowedCondition(deal)) {
+      const hasDefinedKws = allDefinedKws.length > 0;
+      const kwMatch = hasDefinedKws && (() => {
+        const titleLow = deal.title.toLowerCase();
+        const subtitleLow = (deal.subtitle || '').toLowerCase();
+        return allDefinedKws.some(kw => titleLow.includes(kw) || subtitleLow.includes(kw));
+      })();
       if (kwMatch) {
         // Keyword matched → notify regardless of discount
         sendNtfyNotification(deal);
-      } else if (!hasActiveKws && deal.discount >= s.ntfyMinDiscount) {
-        // No keywords active → use discount threshold
+      } else if (!hasDefinedKws && deal.discount >= s.ntfyMinDiscount) {
+        // No keywords defined → use discount threshold
         sendNtfyNotification(deal);
       }
     }
 
     // === Discord Webhook — Mirrors ntfy.sh logic ===
-    if (s.discordEnabled && s.discordWebhook && !deal.isSoldOut && !isQuietHours()) {
-      const hasActiveKws = activeKws.length > 0;
-      const kwMatch = hasActiveKws && matchesKeywords(deal);
-      if (kwMatch || (!hasActiveKws && deal.discount >= s.ntfyMinDiscount)) {
+    if (s.discordEnabled && s.discordWebhook && !deal.isSoldOut && !isQuietHours() && !isBlockedDeal(deal) && isAllowedCondition(deal)) {
+      const hasDefinedKws = allDefinedKws.length > 0;
+      const kwMatch = hasDefinedKws && (() => {
+        const titleLow = deal.title.toLowerCase();
+        const subtitleLow = (deal.subtitle || '').toLowerCase();
+        return allDefinedKws.some(kw => titleLow.includes(kw) || subtitleLow.includes(kw));
+      })();
+      if (kwMatch || (!hasDefinedKws && deal.discount >= s.ntfyMinDiscount)) {
         sendDiscordNotification(deal);
       }
     }
@@ -757,20 +877,23 @@ function clearAlerts() {
   renderAlerts();
 }
 
+// PERF-04: Reuse AudioContext instead of creating one per alert
+let _audioCtx = null;
 function playAlertSound() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+    const osc = _audioCtx.createOscillator();
+    const gain = _audioCtx.createGain();
     osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
-    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.2);
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.4);
+    gain.connect(_audioCtx.destination);
+    osc.frequency.setValueAtTime(880, _audioCtx.currentTime);
+    osc.frequency.setValueAtTime(1100, _audioCtx.currentTime + 0.1);
+    osc.frequency.setValueAtTime(880, _audioCtx.currentTime + 0.2);
+    gain.gain.setValueAtTime(0.15, _audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, _audioCtx.currentTime + 0.4);
+    osc.start(_audioCtx.currentTime);
+    osc.stop(_audioCtx.currentTime + 0.4);
   } catch(e) {}
 }
 
@@ -804,15 +927,22 @@ async function sendNtfyNotification(deal) {
     error: null
   };
   try {
+    // Sanitize title for HTTP headers (ISO-8859-1 only)
+    // Remove non-ASCII characters and keep it safe
+    const safeTitle = (deal.title || 'Deal')
+      .replace(/[^\x20-\x7E]/g, '') // strip non-printable/non-ASCII
+      .substring(0, 200) || 'Woot Deal';
+    const titleHeader = `${safeTitle} - $${deal.salePrice.toFixed(2)}`;
+
     const res = await fetch(`https://ntfy.sh/${encodeURIComponent(topic)}`, {
       method: 'POST',
       headers: {
-        'Title': `${deal.title} - $${deal.salePrice.toFixed(2)}`,
+        'Title': titleHeader,
         'Tags': 'moneybag,fire',
         'Priority': deal.discount >= 60 ? '5' : '4',
         'Click': deal.url
       },
-      body: `Precio: $${deal.salePrice.toFixed(2)} Antes $${deal.listPrice.toFixed(2)}${deal.discount > 0 ? ` (${deal.discount}% OFF)` : ''}\n${deal.url}`
+      body: `${deal.title}\nPrecio: $${deal.salePrice.toFixed(2)} Antes $${deal.listPrice.toFixed(2)}${deal.discount > 0 ? ` (${deal.discount}% OFF)` : ''}\n${deal.url}`
     });
     if (!res.ok) {
       logEntry.status = 'error';
@@ -875,16 +1005,22 @@ function renderDeals() {
   // Hide sold out deals
   filtered = filtered.filter(d => !d.isSoldOut);
 
+  // Hide deals matching blocked words
+  filtered = filtered.filter(d => !isBlockedDeal(d));
+
   // Keyword button filter (OR logic) — only applies on 'all' and 'great' views
   // When using specific filters (hot, new, ending, warehouse, favorites),
   // show ALL matching deals regardless of keywords
   const skipKeywords = ['hot', 'new', 'ending', 'warehouse', 'favorites'].includes(filter);
-  if (state.activeKeywords.size > 0 && !skipKeywords) {
-    const activeKws = [...state.activeKeywords];
+  const definedKws = (state.settings.keywordButtons || []).map(k => k.toLowerCase());
+  if (definedKws.length > 0 && !skipKeywords) {
+    // If some keywords are toggled active → show only those
+    // If none are active → show all keyword-matched deals
+    const filterKws = state.activeKeywords.size > 0 ? [...state.activeKeywords] : definedKws;
     filtered = filtered.filter(d => {
       const titleLow = d.title.toLowerCase();
       const subtitleLow = (d.subtitle || '').toLowerCase();
-      return activeKws.some(kw => titleLow.includes(kw) || subtitleLow.includes(kw));
+      return filterKws.some(kw => titleLow.includes(kw) || subtitleLow.includes(kw));
     });
   }
 

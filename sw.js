@@ -1,5 +1,6 @@
 // Service Worker — Woot Alert Bot PWA
-const CACHE_NAME = 'woot-bot-v1';
+// PERF-03: Version-stamped cache name — update on each deploy
+const CACHE_NAME = 'woot-bot-v2-20260504';
 const PRECACHE_URLS = [
   '/',
   '/index.html',

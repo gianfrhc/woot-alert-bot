@@ -13,6 +13,7 @@ services:
       - ./data/settings.json:/app/settings.json
       - ./data/sessions.json:/app/sessions.json
       - ./data/ntfy-logs.json:/app/ntfy-logs.json
+      - ./data/seen-ids.json:/app/seen-ids.json
       - ./data/logs:/app/logs
     environment:
       - NODE_ENV=production

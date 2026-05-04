@@ -9,47 +9,86 @@ const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const AUTH_FILE = path.join(__dirname, 'auth.json');
 const NTFY_LOGS_FILE = path.join(__dirname, 'ntfy-logs.json');
 const SESSIONS_FILE = path.join(__dirname, 'sessions.json');
+const SEEN_IDS_FILE = path.join(__dirname, 'seen-ids.json');
 const MAX_BODY_SIZE = 1024 * 1024; // 1MB
 
-// ===== AUTH CONFIG =====
+// ===== ATOMIC FILE WRITES (DATA-01) =====
+function atomicWriteJSON(filepath, data) {
+  const tmp = filepath + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+  fs.renameSync(tmp, filepath); // atomic on same filesystem
+}
+
+// ===== AUTH CONFIG (SEC-03: scrypt with random salt) =====
 function loadAuth() {
   try {
     if (fs.existsSync(AUTH_FILE)) {
       const auth = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf8'));
-      // Migrate plaintext password to hash if needed
+      // Migrate plaintext password to scrypt hash
       if (auth.password && !auth.hash) {
-        auth.hash = hashPassword(auth.password);
+        auth.hash = hashPasswordSync(auth.password);
         delete auth.password;
-        fs.writeFileSync(AUTH_FILE, JSON.stringify(auth, null, 2), 'utf8');
-        console.log('  🔐 Password migrated to secure hash');
+        atomicWriteJSON(AUTH_FILE, auth);
+        console.log('  🔐 Password migrated to scrypt hash');
       }
-      // If valid hash exists, use it
+      // Migrate old SHA-256 hash to scrypt (64 hex chars = SHA-256)
+      if (auth.hash && !auth.hash.includes(':')) {
+        console.log('  🔐 Old SHA-256 hash detected — will auto-migrate on next login');
+        auth._legacySha256 = auth.hash;
+      }
       if (auth.hash) return auth;
-      // Otherwise fall through to generate new password
     }
-  } catch (e) {}
+  } catch (e) { console.error('[Auth] Load error:', e.message); }
 
   // First run: generate random password
   const password = crypto.randomBytes(4).toString('hex');
-  const auth = { hash: hashPassword(password) };
-  fs.writeFileSync(AUTH_FILE, JSON.stringify(auth, null, 2), 'utf8');
+  const auth = { hash: hashPasswordSync(password) };
+  atomicWriteJSON(AUTH_FILE, auth);
   console.log(`\n  🔑 First run — generated password: ${password}`);
   console.log(`  📁 Saved to: ${AUTH_FILE}`);
-  console.log(`  ⚠️  This password is shown ONLY ONCE. It's stored as a hash.\n`);
+  console.log(`  ⚠️  This password is shown ONLY ONCE. It's stored as a scrypt hash.\n`);
   return auth;
 }
 
-function hashPassword(pwd) {
+// SEC-03: scrypt with random 16-byte salt (format: salt_hex:hash_hex)
+function hashPasswordSync(pwd) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(pwd, salt, 64);
+  return salt.toString('hex') + ':' + hash.toString('hex');
+}
+
+// Legacy SHA-256 check (for migration)
+function legacySha256(pwd) {
   return crypto.createHash('sha256').update(pwd + 'woot-salt-2026').digest('hex');
 }
 
 function verifyPassword(input, auth) {
-  // Support both legacy plaintext and hashed passwords
-  if (auth.hash) {
-    const inputHash = hashPassword(input);
-    return crypto.timingSafeEqual(Buffer.from(inputHash), Buffer.from(auth.hash));
+  // New scrypt format: salt_hex:hash_hex
+  if (auth.hash && auth.hash.includes(':')) {
+    const [saltHex, hashHex] = auth.hash.split(':');
+    const salt = Buffer.from(saltHex, 'hex');
+    const storedHash = Buffer.from(hashHex, 'hex');
+    const inputHash = crypto.scryptSync(input, salt, 64);
+    return crypto.timingSafeEqual(inputHash, storedHash);
+  }
+  // Legacy SHA-256 migration path
+  if (auth._legacySha256) {
+    const inputHash = legacySha256(input);
+    if (crypto.timingSafeEqual(Buffer.from(inputHash), Buffer.from(auth._legacySha256))) {
+      // Auto-migrate to scrypt on successful login
+      auth.hash = hashPasswordSync(input);
+      delete auth._legacySha256;
+      atomicWriteJSON(AUTH_FILE, { hash: auth.hash });
+      console.log('  🔐 Password auto-migrated from SHA-256 to scrypt');
+      return true;
+    }
+    return false;
   }
   // Legacy plaintext fallback
+  if (auth.hash) {
+    const inputHash = legacySha256(input);
+    return crypto.timingSafeEqual(Buffer.from(inputHash), Buffer.from(auth.hash));
+  }
   return input === auth.password;
 }
 
@@ -70,13 +109,13 @@ function loadSessions() {
       });
       console.log(`  📋 Restored ${sessions.size} active sessions`);
     }
-  } catch (e) {}
+  } catch (e) { console.error('[Sessions] Load error:', e.message); }
 }
 
 function saveSessions() {
   const obj = {};
   sessions.forEach((expiry, token) => { obj[token] = expiry; });
-  try { fs.writeFileSync(SESSIONS_FILE, JSON.stringify(obj), 'utf8'); } catch (e) {}
+  try { atomicWriteJSON(SESSIONS_FILE, obj); } catch (e) { console.error('[Sessions] Save error:', e.message); }
 }
 
 function createSession() {
@@ -160,24 +199,71 @@ const MIME = {
 function loadSettings() {
   try {
     if (fs.existsSync(SETTINGS_FILE)) return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-  } catch (e) {}
+  } catch (e) { console.error('[Settings] Load error:', e.message); }
   return null;
 }
 
+// DATA-03: Basic schema validation for settings
+const SETTINGS_SCHEMA = {
+  minDiscount: 'number', minPrice: 'number', maxPrice: 'number',
+  refreshInterval: 'number', ntfyMinDiscount: 'number',
+  categories: 'array', keywordButtons: 'array', blockedWords: 'array',
+  activeKeywords: 'array',
+  soundEnabled: 'boolean', notificationsEnabled: 'boolean',
+  ntfyEnabled: 'boolean', discordEnabled: 'boolean',
+  ntfyAllowOpenBox: 'boolean', ntfyAllowRefurbished: 'boolean',
+  ntfyTopic: 'string', quietStart: 'string', quietEnd: 'string',
+  discordWebhook: 'string', apiKey: 'string'
+};
+
+function validateSettings(data) {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    return 'Settings must be a JSON object';
+  }
+  for (const [key, expectedType] of Object.entries(SETTINGS_SCHEMA)) {
+    if (!(key in data)) continue; // optional fields
+    const val = data[key];
+    if (expectedType === 'array') {
+      if (!Array.isArray(val)) return `${key} must be an array`;
+    } else if (typeof val !== expectedType) {
+      return `${key} must be a ${expectedType}, got ${typeof val}`;
+    }
+  }
+  // Range validation
+  if (data.minDiscount != null && (data.minDiscount < 0 || data.minDiscount > 100)) return 'minDiscount must be 0-100';
+  if (data.maxPrice != null && data.maxPrice < 0) return 'maxPrice cannot be negative';
+  if (data.refreshInterval != null && data.refreshInterval < 60) return 'refreshInterval minimum is 60s';
+  if (data.ntfyMinDiscount != null && (data.ntfyMinDiscount < 0 || data.ntfyMinDiscount > 100)) return 'ntfyMinDiscount must be 0-100';
+  return null; // valid
+}
+
 function saveSettingsFile(data) {
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2), 'utf8');
+  atomicWriteJSON(SETTINGS_FILE, data);
 }
 
 function loadNtfyLogs() {
   try {
     if (fs.existsSync(NTFY_LOGS_FILE)) return JSON.parse(fs.readFileSync(NTFY_LOGS_FILE, 'utf8'));
-  } catch (e) {}
+  } catch (e) { console.error('[NtfyLogs] Load error:', e.message); }
   return [];
 }
 
 function saveNtfyLogs(logs) {
   const trimmed = logs.slice(0, 500);
-  fs.writeFileSync(NTFY_LOGS_FILE, JSON.stringify(trimmed, null, 2), 'utf8');
+  atomicWriteJSON(NTFY_LOGS_FILE, trimmed);
+}
+
+// DATA-02: seenOfferIds sync
+function loadSeenIds() {
+  try {
+    if (fs.existsSync(SEEN_IDS_FILE)) return JSON.parse(fs.readFileSync(SEEN_IDS_FILE, 'utf8'));
+  } catch (e) { console.error('[SeenIds] Load error:', e.message); }
+  return [];
+}
+
+function saveSeenIds(ids) {
+  const trimmed = Array.isArray(ids) ? ids.slice(-2000) : [];
+  atomicWriteJSON(SEEN_IDS_FILE, trimmed);
 }
 
 // Body reader with size limit
@@ -201,9 +287,7 @@ function readBody(req) {
 
 // ===== SERVER =====
 const server = http.createServer(async (req, res) => {
-  // No wildcard CORS — only same-origin requests allowed
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // ARCH-03: Removed partial CORS headers — all requests are same-origin
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
@@ -295,6 +379,13 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       const data = JSON.parse(body);
+      // DATA-03: Validate before saving
+      const validationError = validateSettings(data);
+      if (validationError) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: validationError }));
+        return;
+      }
       saveSettingsFile(data);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
@@ -336,10 +427,36 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // === PROTECTED: seenOfferIds API (DATA-02) ===
+  if (req.method === 'GET' && urlPath === '/api/seen-ids') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(loadSeenIds()));
+    return;
+  }
+
+  if (req.method === 'POST' && urlPath === '/api/seen-ids') {
+    try {
+      const body = await readBody(req);
+      const ids = JSON.parse(body);
+      if (!Array.isArray(ids)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Expected an array of IDs' }));
+        return;
+      }
+      saveSeenIds(ids);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid JSON' }));
+    }
+    return;
+  }
+
   // === PROTECTED: Static files ===
   let filePath = urlPath === '/' ? '/index.html' : urlPath;
   const basename = path.basename(filePath);
-  const blocked = ['auth.json', 'settings.json', 'ntfy-logs.json', 'sessions.json', 'server.js'];
+  const blocked = ['auth.json', 'settings.json', 'ntfy-logs.json', 'sessions.json', 'seen-ids.json', 'server.js'];
   if (blocked.includes(basename)) {
     res.writeHead(403);
     res.end('Forbidden');

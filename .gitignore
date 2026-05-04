@@ -11,6 +11,12 @@ logs/
 *.log
 ntfy-logs.json
 
+# Seen IDs (synced across devices)
+seen-ids.json
+
+# Atomic write temp files
+*.tmp
+
 # OS files
 .DS_Store
 Thumbs.db

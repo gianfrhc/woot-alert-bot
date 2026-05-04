@@ -207,15 +207,40 @@
                     <div class="setting-group" id="ntfy-discount-group">
                         <label class="setting-label">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                            ntfy.sh Minimum Discount (%)
+                            Notification Minimum Discount (%)
                         </label>
                         <div class="range-input-group">
-                            <input type="range" id="ntfy-min-discount" min="0" max="90" value="40" class="range-input" aria-label="Minimum discount for ntfy.sh">
+                            <input type="range" id="ntfy-min-discount" min="0" max="90" value="40" class="range-input" aria-label="Minimum discount for notifications (ntfy.sh and Discord)">
                             <span class="range-value" id="ntfy-min-discount-value">40%</span>
                         </div>
                         <p class="setting-hint">Keyword matches bypass this threshold. Respects Categories.</p>
                     </div>
 
+                    <div class="setting-group" id="ntfy-condition-group">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+                            Product Condition Filter
+                        </label>
+                        <p class="setting-hint" style="margin-bottom:6px">New items always send alerts. Toggle to also include:</p>
+                        <div class="condition-toggles">
+                            <label class="setting-label toggle-label condition-toggle-row">
+                                📦 Open Box
+                                <div class="toggle" id="toggle-allow-openbox" role="switch" aria-checked="false" tabindex="0" aria-label="Allow Open Box alerts">
+                                    <div class="toggle-track">
+                                        <div class="toggle-thumb"></div>
+                                    </div>
+                                </div>
+                            </label>
+                            <label class="setting-label toggle-label condition-toggle-row">
+                                🔧 Refurbished
+                                <div class="toggle" id="toggle-allow-refurbished" role="switch" aria-checked="false" tabindex="0" aria-label="Allow Refurbished alerts">
+                                    <div class="toggle-track">
+                                        <div class="toggle-thumb"></div>
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
                     <div class="setting-group" id="ntfy-quiet-group">
                         <label class="setting-label">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 18a5 5 0 0 0-10 0"/><line x1="12" y1="2" x2="12" y2="9"/><line x1="4.22" y1="10.22" x2="5.64" y2="11.64"/><line x1="1" y1="18" x2="3" y2="18"/><line x1="21" y1="18" x2="23" y2="18"/><line x1="18.36" y1="11.64" x2="19.78" y2="10.22"/><line x1="23" y1="22" x2="1" y2="22"/><polyline points="8 6 12 2 16 6"/></svg>
@@ -233,6 +258,19 @@
                             </div>
                         </div>
                         <p class="setting-hint">Leave empty to disable. Supports overnight (e.g., 23:00 → 07:00).</p>
+                    </div>
+
+                    <div class="setting-group" id="ntfy-blocked-group">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                            Blocked Words (no ntfy/Discord)
+                        </label>
+                        <div class="keyword-add-row">
+                            <input type="text" id="blocked-word-input" class="text-input" placeholder="e.g. case, screen protector">
+                            <button class="btn btn-primary btn-add-keyword" id="btn-add-blocked" style="background:var(--error)">+ Block</button>
+                        </div>
+                        <div class="keyword-tags-container" id="blocked-words-tags"></div>
+                        <p class="setting-hint">Deals containing these words will NOT be sent to ntfy.sh or Discord.</p>
                     </div>
 
                     <hr class="setting-divider">

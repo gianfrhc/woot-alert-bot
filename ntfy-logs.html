@@ -297,7 +297,7 @@
                     <td class="mono hide-mobile">${price}</td>
                     <td><span class="discount-badge ${discClass}">${disc}%</span></td>
                     <td><span class="status-badge ${statusClass}">${statusLabel}</span></td>
-                    <td class="hide-mobile ${log.error ? 'error-cell' : 'text-muted'}" title="${detail}">${detail}</td>
+                    <td class="hide-mobile ${log.error ? 'error-cell' : 'text-muted'}" title="${escHtml(String(detail))}">${detail}</td>
                 </tr>`;
             }).join('');
         }
