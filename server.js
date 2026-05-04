@@ -23,7 +23,9 @@ function loadAuth() {
         fs.writeFileSync(AUTH_FILE, JSON.stringify(auth, null, 2), 'utf8');
         console.log('  🔐 Password migrated to secure hash');
       }
-      return auth;
+      // If valid hash exists, use it
+      if (auth.hash) return auth;
+      // Otherwise fall through to generate new password
     }
   } catch (e) {}
 
