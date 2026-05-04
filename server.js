@@ -12,11 +12,18 @@ const SESSIONS_FILE = path.join(__dirname, 'sessions.json');
 const SEEN_IDS_FILE = path.join(__dirname, 'seen-ids.json');
 const MAX_BODY_SIZE = 1024 * 1024; // 1MB
 
-// ===== ATOMIC FILE WRITES (DATA-01) =====
+// ===== SAFE FILE WRITES (DATA-01) =====
 function atomicWriteJSON(filepath, data) {
-  const tmp = filepath + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
-  fs.renameSync(tmp, filepath); // atomic on same filesystem
+  const json = JSON.stringify(data, null, 2);
+  try {
+    // Try atomic write-then-rename (safest on native filesystems)
+    const tmp = filepath + '.tmp';
+    fs.writeFileSync(tmp, json, 'utf8');
+    fs.renameSync(tmp, filepath);
+  } catch (e) {
+    // Fallback: direct write (Docker bind mounts block rename with EBUSY)
+    fs.writeFileSync(filepath, json, 'utf8');
+  }
 }
 
 // ===== AUTH CONFIG (SEC-03: scrypt with random salt) =====
