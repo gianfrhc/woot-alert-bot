@@ -533,6 +533,7 @@ const FEED_NAMES = ['All', 'Electronics', 'Computers', 'Home', 'Tools', 'Sports'
 
 const scanner = {
   currentDeals: [],
+  seenIds: new Set(),     // In-memory seen IDs (loaded from disk once on boot)
   isScanning: false,
   lastScanTime: 0,
   scanCount: 0,
@@ -543,12 +544,15 @@ const scanner = {
   totalNotified: 0
 };
 
-function scannerLoadSeenIds() {
-  return new Set(loadSeenIds());
+// Load seen IDs from disk into memory (called once on boot)
+function scannerInitSeenIds() {
+  const diskIds = loadSeenIds();
+  diskIds.forEach(id => scanner.seenIds.add(id));
+  console.log(`  📋 Loaded ${scanner.seenIds.size} seen IDs from disk`);
 }
 
-function scannerSaveSeenIds(seenSet) {
-  const arr = [...seenSet].slice(-2000);
+function scannerPersistSeenIds() {
+  const arr = [...scanner.seenIds].slice(-5000);
   saveSeenIds(arr);
 }
 
@@ -796,11 +800,11 @@ async function scannerDoScan() {
     allDeals = dedupeDeals(allDeals);
     scanner.currentDeals = allDeals;
 
-    // Find new deals
-    const seenIds = scannerLoadSeenIds();
-    const newDeals = allDeals.filter(d => !seenIds.has(d.id));
-    allDeals.forEach(d => seenIds.add(d.id));
-    scannerSaveSeenIds(seenIds);
+    // Find new deals (using in-memory Set for accuracy)
+    const newDeals = allDeals.filter(d => !scanner.seenIds.has(d.id));
+    allDeals.forEach(d => scanner.seenIds.add(d.id));
+    // Persist to disk (trimmed to last 5000)
+    scannerPersistSeenIds();
 
     scanner.scanCount++;
     scanner.lastScanTime = Date.now();
@@ -898,7 +902,8 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  Scanner:    ✅ Autonomous (server-side)`);
   console.log(`  ─────────────────────────────────────────────────────\n`);
 
-  // Start the autonomous scanner (coldStart = true for initial scan)
+  // Load seen IDs into memory from disk, then start scanner
+  scannerInitSeenIds();
   scannerStart(true);
 });
 
