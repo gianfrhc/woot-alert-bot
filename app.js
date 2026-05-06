@@ -549,18 +549,10 @@ function isAllowedCondition(deal) {
   return true;
 }
 
-// ===== SCANNING =====
+// ===== SCANNING (fetches from server, which scans Woot API autonomously) =====
 async function scanDeals() {
   if (state.isScanning) return;
-  // Cooldown: 30s between scans
-  const now = Date.now();
-  if (now - state.lastScanTime < 30000 && state.lastScanTime > 0) {
-    const wait = Math.ceil((30000 - (now - state.lastScanTime)) / 1000);
-    showToast(`Please wait ${wait}s before scanning again`, 'info');
-    return;
-  }
   state.isScanning = true;
-  state.lastScanTime = now;
   updateStatus('scanning');
   showLoading(true);
 
@@ -572,23 +564,23 @@ async function scanDeals() {
   const scanStart = Date.now();
 
   try {
-    let deals = [];
-    if (state.settings.apiKey) {
-      deals = await fetchFromAPI();
-    }
-    if (deals.length === 0 && !state.settings.apiKey) {
-      showToast('No API key configured — go to Settings to add your Woot API key', 'info');
-      updateStatus('error');
-      btn.classList.remove('scanning');
-      btn.querySelector('span').textContent = 'Scan Now';
-      state.isScanning = false;
-      showLoading(false);
-      return;
-    } else if (deals.length === 0 && state.settings.apiKey) {
-      showToast('API returned 0 deals — check your API key or try again', 'info');
+    // Trigger a server-side scan (fire & forget — server scans autonomously)
+    fetch('/api/scan', { method: 'POST' }).catch(() => {});
+
+    // Wait a moment for server scan to complete, then fetch deals
+    await new Promise(r => setTimeout(r, 2000));
+
+    const res = await fetch('/api/deals');
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const data = await res.json();
+    const deals = data.deals || [];
+
+    if (deals.length === 0) {
+      showToast('No deals found — check API key in Settings', 'info');
     }
 
-    const isFirstScan = state.seenOfferIds.size === 0;
+    // Track new deals for UI alerts (sound, desktop notifications)
+    const isFirstLoad = state.seenOfferIds.size === 0;
     const newDeals = deals.filter(d => !state.seenOfferIds.has(d.id));
     deals.forEach(d => state.seenOfferIds.add(d.id));
     saveSeenIds();
@@ -596,21 +588,23 @@ async function scanDeals() {
     state.deals = deals;
     state.totalDealsAllTime += newDeals.length;
 
-    if (!isFirstScan) checkAlerts(newDeals);
-    state.hasRenderedOnce = false; // Allow animation on fresh scan
+    // UI-only alerts (sound, desktop notification) — ntfy/Discord handled by server
+    if (!isFirstLoad) checkAlerts(newDeals);
+    state.hasRenderedOnce = false;
     renderDeals();
     state.hasRenderedOnce = true;
     updateStats();
     updateStatus('active');
 
     const scanDuration = ((Date.now() - scanStart) / 1000).toFixed(1);
-    document.getElementById('stat-last-scan').textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    document.getElementById('stat-last-scan').textContent = data.lastScan
+      ? new Date(data.lastScan).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+      : new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
 
     state.scanHistory.unshift({ time: new Date(), count: deals.length, newCount: newDeals.length, duration: scanDuration });
     if (state.scanHistory.length > 50) state.scanHistory.pop();
 
-    const sourceTxt = state.settings.apiKey ? '🔴 LIVE' : '🎭 Demo';
-    showToast(`${sourceTxt} — ${deals.length} deals (${newDeals.length} new) in ${scanDuration}s`, 'success');
+    showToast(`🔴 LIVE — ${deals.length} deals (${newDeals.length} new) in ${scanDuration}s`, 'success');
 
     // Button success flash
     btn.classList.remove('scanning');
@@ -631,114 +625,7 @@ async function scanDeals() {
   resetCountdown();
 }
 
-async function fetchFromAPI() {
-  const selectedCats = state.settings.categories;
-  // If "All" is selected, just fetch "All" feed; otherwise fetch each selected category
-  const feedsToFetch = selectedCats.includes('All') ? ['All'] : selectedCats;
-
-  let allDeals = [];
-
-  // Fetch feeds in parallel for speed
-  const promises = feedsToFetch.map(async (cat) => {
-    try {
-      const res = await fetch(`${WOOT_API}/feed/${cat}`, {
-        headers: {
-          'Accept': 'application/json',
-          'x-api-key': state.settings.apiKey
-        }
-      });
-      if (!res.ok) {
-        if (res.status === 403) throw new Error('Invalid API Key (403 Forbidden)');
-        console.warn(`API ${cat} returned ${res.status}`);
-        return [];
-      }
-      // Robust JSON parsing — some feeds may return malformed JSON
-      const text = await res.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (parseErr) {
-        console.warn(`API ${cat}: JSON parse failed, trying to clean response...`, parseErr.message);
-        // Try stripping BOM or non-printable chars
-        const cleaned = text.replace(/^\xEF\xBB\xBF/, '').trim();
-        try {
-          data = JSON.parse(cleaned);
-        } catch(e2) {
-          console.warn(`API ${cat}: Could not parse response (${text.length} chars)`);
-          return [];
-        }
-      }
-      if (data.Items && Array.isArray(data.Items)) {
-        return data.Items.map(item => normalizeAPIItem(item, data.MarketingName || cat));
-      }
-    } catch(e) {
-      console.warn(`API fetch ${cat} failed:`, e);
-      // Don't throw — let other feeds succeed
-    }
-    return [];
-  });
-
-  const results = await Promise.allSettled(promises);
-  results.forEach(r => {
-    if (r.status === 'fulfilled' && r.value) allDeals.push(...r.value);
-  });
-
-  // Check if ALL failed
-  const allFailed = results.every(r => r.status === 'rejected');
-  if (allFailed && results.length > 0) {
-    throw results[0].reason;
-  }
-
-  return dedupeDeals(allDeals);
-}
-
-function normalizeAPIItem(item, marketingName) {
-  const sp = item.SalePrice || {};
-  const lp = item.ListPrice || {};
-  const saleMin = sp.Minimum || 0;
-  const saleMax = sp.Maximum || saleMin;
-  const listMin = lp.Minimum || 0;
-  const listMax = lp.Maximum || listMin;
-  const discount = listMin > 0 ? Math.round((1 - saleMin / listMin) * 100) : 0;
-
-  // Derive clean category from the Categories array
-  const cats = item.Categories || [];
-  const primaryCat = cats.length > 0 ? cats[0] : (marketingName || 'Other');
-
-  return {
-    id: item.OfferId,
-    title: item.Title || 'Untitled',
-    subtitle: item.Subtitle || '',
-    url: item.Url || 'https://www.woot.com',
-    photo: item.Photo || '',
-    salePrice: saleMin,
-    salePriceMax: saleMax,
-    listPrice: listMin,
-    listPriceMax: listMax,
-    discount: discount,
-    condition: item.Condition || null,
-    categories: cats,
-    primaryCategory: primaryCat,
-    marketingName: marketingName,
-    isSoldOut: item.IsSoldOut || false,
-    isFeatured: item.IsFeatured || false,
-    isWootOff: item.IsWootOff || false,
-    isFulfilledByAmazon: item.IsFulfilledByAmazon || false,
-    startDate: item.StartDate,
-    endDate: item.EndDate,
-    _endMs: item.EndDate ? new Date(item.EndDate).getTime() : null,
-    forumUrl: item.ForumUrl || null
-  };
-}
-
-function dedupeDeals(deals) {
-  const seen = new Set();
-  return deals.filter(d => {
-    if (seen.has(d.id)) return false;
-    seen.add(d.id);
-    return true;
-  });
-}
+// normalizeAPIItem and dedupeDeals moved to server.js — deals arrive pre-normalized
 
 // ===== DEMO DATA =====
 function generateDemoDeals() {
@@ -785,63 +672,26 @@ function generateDemoDeals() {
 }
 
 // ===== ALERTS =====
+// checkAlerts — UI-only alerts (sound, desktop notifications)
+// ntfy.sh and Discord are now handled server-side autonomously
 function checkAlerts(newDeals) {
   const s = state.settings;
-  // BUG-03: Use ALL defined keywords for ntfy/Discord (not just UI-active ones)
-  const allDefinedKws = (s.keywordButtons || []).map(k => k.toLowerCase());
-  // UI-active keywords still used for dashboard alerts
   const activeKws = [...state.activeKeywords];
 
-  // Helper: check if deal matches active keywords (OR logic)
   function matchesKeywords(deal) {
-    if (activeKws.length === 0) return true; // No keywords active = match all
+    if (activeKws.length === 0) return true;
     const titleLow = deal.title.toLowerCase();
     const subtitleLow = (deal.subtitle || '').toLowerCase();
     return activeKws.some(kw => titleLow.includes(kw) || subtitleLow.includes(kw));
   }
 
   newDeals.forEach(deal => {
-    // === General alerts (sound, desktop notification, alert feed) ===
     let triggered = false;
     if (deal.discount >= s.minDiscount && deal.salePrice >= s.minPrice && deal.salePrice <= s.maxPrice && !deal.isSoldOut) {
       triggered = true;
     }
     if (triggered && !matchesKeywords(deal)) triggered = false;
     if (triggered) addAlert(deal);
-
-    // === ntfy.sh — Independent evaluation ===
-    // BUG-03: Uses ALL defined keywords (not just UI-active)
-    // Keyword match → always notify (even 0% discount)
-    // No keywords defined → use ntfyMinDiscount threshold
-    // Respects quiet hours, blocked words, and condition filter
-    if (s.ntfyEnabled && s.ntfyTopic && !deal.isSoldOut && !isQuietHours() && !isBlockedDeal(deal) && isAllowedCondition(deal)) {
-      const hasDefinedKws = allDefinedKws.length > 0;
-      const kwMatch = hasDefinedKws && (() => {
-        const titleLow = deal.title.toLowerCase();
-        const subtitleLow = (deal.subtitle || '').toLowerCase();
-        return allDefinedKws.some(kw => titleLow.includes(kw) || subtitleLow.includes(kw));
-      })();
-      if (kwMatch) {
-        // Keyword matched → notify regardless of discount
-        sendNtfyNotification(deal);
-      } else if (!hasDefinedKws && deal.discount >= s.ntfyMinDiscount) {
-        // No keywords defined → use discount threshold
-        sendNtfyNotification(deal);
-      }
-    }
-
-    // === Discord Webhook — Mirrors ntfy.sh logic ===
-    if (s.discordEnabled && s.discordWebhook && !deal.isSoldOut && !isQuietHours() && !isBlockedDeal(deal) && isAllowedCondition(deal)) {
-      const hasDefinedKws = allDefinedKws.length > 0;
-      const kwMatch = hasDefinedKws && (() => {
-        const titleLow = deal.title.toLowerCase();
-        const subtitleLow = (deal.subtitle || '').toLowerCase();
-        return allDefinedKws.some(kw => titleLow.includes(kw) || subtitleLow.includes(kw));
-      })();
-      if (kwMatch || (!hasDefinedKws && deal.discount >= s.ntfyMinDiscount)) {
-        sendDiscordNotification(deal);
-      }
-    }
   });
 }
 
@@ -913,85 +763,8 @@ function sendNotification(deal) {
   }
 }
 
-async function sendNtfyNotification(deal) {
-  const topic = state.settings.ntfyTopic;
-  if (!topic) return;
-  const logEntry = {
-    time: new Date().toISOString(),
-    title: deal.title,
-    price: deal.salePrice,
-    discount: deal.discount,
-    url: deal.url,
-    topic: topic,
-    status: 'success',
-    error: null
-  };
-  try {
-    // Sanitize title for HTTP headers (ISO-8859-1 only)
-    // Remove non-ASCII characters and keep it safe
-    const safeTitle = (deal.title || 'Deal')
-      .replace(/[^\x20-\x7E]/g, '') // strip non-printable/non-ASCII
-      .substring(0, 200) || 'Woot Deal';
-    const titleHeader = `${safeTitle} - $${deal.salePrice.toFixed(2)}`;
-
-    const res = await fetch(`https://ntfy.sh/${encodeURIComponent(topic)}`, {
-      method: 'POST',
-      headers: {
-        'Title': titleHeader,
-        'Tags': 'moneybag,fire',
-        'Priority': deal.discount >= 60 ? '5' : '4',
-        'Click': deal.url
-      },
-      body: `${deal.title}\nPrecio: $${deal.salePrice.toFixed(2)} Antes $${deal.listPrice.toFixed(2)}${deal.discount > 0 ? ` (${deal.discount}% OFF)` : ''}\n${deal.url}`
-    });
-    if (!res.ok) {
-      logEntry.status = 'error';
-      logEntry.error = `HTTP ${res.status}`;
-    }
-  } catch (err) {
-    console.warn('ntfy.sh send failed:', err);
-    logEntry.status = 'error';
-    logEntry.error = err.message || 'Network error';
-  }
-  // Save log to server (fire-and-forget)
-  fetch('/api/ntfy-logs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(logEntry)
-  }).catch(() => {});
-}
-
-// ===== DISCORD WEBHOOK =====
-async function sendDiscordNotification(deal) {
-  const url = state.settings.discordWebhook;
-  if (!url) return;
-  const embed = {
-    title: deal.title,
-    url: deal.url,
-    color: deal.discount >= 60 ? 0xef4444 : deal.discount >= 40 ? 0xf59e0b : 0x6366f1,
-    fields: [
-      { name: '💰 Price', value: `**$${deal.salePrice.toFixed(2)}**${deal.listPrice > 0 ? ` ~~$${deal.listPrice.toFixed(2)}~~` : ''}`, inline: true },
-      { name: '🔥 Discount', value: `**${deal.discount}% OFF**`, inline: true },
-      { name: '📦 Condition', value: deal.condition || 'N/A', inline: true }
-    ],
-    thumbnail: deal.photo ? { url: deal.photo } : undefined,
-    footer: { text: `Woot Alert Bot • ${deal.primaryCategory || 'Deal'}` },
-    timestamp: new Date().toISOString()
-  };
-  try {
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: 'Woot Bot',
-        avatar_url: 'https://d3gqasl9vmjfd8.cloudfront.net/assets/woot_logo.png',
-        embeds: [embed]
-      })
-    });
-  } catch (e) {
-    console.warn('Discord send failed:', e);
-  }
-}
+// sendNtfyNotification and sendDiscordNotification moved to server.js
+// Server sends notifications autonomously — no browser needed
 
 // ===== RENDER =====
 function renderDeals() {

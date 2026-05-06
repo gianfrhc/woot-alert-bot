@@ -394,9 +394,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       saveSettingsFile(data);
+      // Restart scanner with new settings (interval, keywords, categories may have changed)
+      if (typeof scannerStart === 'function') scannerStart();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
-      console.log(`[${new Date().toLocaleTimeString()}] Settings saved (${data.keywordButtons?.length || 0} keywords)`);
+      console.log(`[${new Date().toLocaleTimeString()}] Settings saved (${data.keywordButtons?.length || 0} keywords) — scanner restarted`);
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message || 'Invalid JSON' }));
@@ -460,7 +462,49 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // === PROTECTED: Static files ===
+  // === PROTECTED: Server-scanned deals ===
+  if (req.method === 'GET' && urlPath === '/api/deals') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      deals: scanner.currentDeals,
+      lastScan: scanner.lastScanTime ? new Date(scanner.lastScanTime).toISOString() : null,
+      scanCount: scanner.scanCount,
+      isScanning: scanner.isScanning,
+      totalNotified: scanner.totalNotified
+    }));
+    return;
+  }
+
+  if (req.method === 'GET' && urlPath === '/api/scan-status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      lastScan: scanner.lastScanTime ? new Date(scanner.lastScanTime).toISOString() : null,
+      scanCount: scanner.scanCount,
+      isScanning: scanner.isScanning,
+      lastError: scanner.lastError,
+      dealsCount: scanner.currentDeals.length,
+      intervalSec: scanner.intervalSec,
+      totalNotified: scanner.totalNotified,
+      nextScanIn: scanner.intervalSec - Math.floor((Date.now() - (scanner.lastScanTime || 0)) / 1000)
+    }));
+    return;
+  }
+
+  // === PROTECTED: Force scan now ===
+  if (req.method === 'POST' && urlPath === '/api/scan') {
+    if (scanner.isScanning) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Scan already in progress' }));
+      return;
+    }
+    // Run scan async, respond immediately
+    scannerDoScan().catch(e => console.error('[Scanner] Manual scan error:', e));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, message: 'Scan started' }));
+    return;
+  }
+
+  // === PROTECTED: Static files (MUST be last route) ===
   let filePath = urlPath === '/' ? '/index.html' : urlPath;
   const basename = path.basename(filePath);
   const blocked = ['auth.json', 'settings.json', 'ntfy-logs.json', 'sessions.json', 'seen-ids.json', 'server.js'];
@@ -483,16 +527,379 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
+// ===== SERVER-SIDE WOOT SCANNER =====
+const WOOT_API_BASE = 'https://developer.woot.com';
+const FEED_NAMES = ['All', 'Electronics', 'Computers', 'Home', 'Tools', 'Sports', 'Wootoff', 'Featured', 'Clearance', 'Shirts', 'Gourmet'];
+
+const scanner = {
+  currentDeals: [],
+  isScanning: false,
+  lastScanTime: 0,
+  scanCount: 0,
+  lastError: null,
+  intervalSec: 120,
+  timer: null,
+  isFirstScan: true,
+  totalNotified: 0
+};
+
+function scannerLoadSeenIds() {
+  return new Set(loadSeenIds());
+}
+
+function scannerSaveSeenIds(seenSet) {
+  const arr = [...seenSet].slice(-2000);
+  saveSeenIds(arr);
+}
+
+// HTTP fetch using Node.js built-in (works on Node 18+)
+async function fetchJSON(url, headers = {}) {
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    if (res.status === 403) throw new Error('Invalid API Key (403 Forbidden)');
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    // Try stripping BOM
+    const cleaned = text.replace(/^\xEF\xBB\xBF/, '').trim();
+    return JSON.parse(cleaned);
+  }
+}
+
+function normalizeAPIItem(item, marketingName) {
+  const sp = item.SalePrice || {};
+  const lp = item.ListPrice || {};
+  const saleMin = sp.Minimum || 0;
+  const saleMax = sp.Maximum || saleMin;
+  const listMin = lp.Minimum || 0;
+  const listMax = lp.Maximum || listMin;
+  const discount = listMin > 0 ? Math.round((1 - saleMin / listMin) * 100) : 0;
+  const cats = item.Categories || [];
+  const primaryCat = cats.length > 0 ? cats[0] : (marketingName || 'Other');
+
+  return {
+    id: item.OfferId,
+    title: item.Title || 'Untitled',
+    subtitle: item.Subtitle || '',
+    url: item.Url || 'https://www.woot.com',
+    photo: item.Photo || '',
+    salePrice: saleMin,
+    salePriceMax: saleMax,
+    listPrice: listMin,
+    listPriceMax: listMax,
+    discount,
+    condition: item.Condition || null,
+    categories: cats,
+    primaryCategory: primaryCat,
+    marketingName: marketingName,
+    isSoldOut: item.IsSoldOut || false,
+    isFeatured: item.IsFeatured || false,
+    isWootOff: item.IsWootOff || false,
+    isFulfilledByAmazon: item.IsFulfilledByAmazon || false,
+    startDate: item.StartDate,
+    endDate: item.EndDate,
+    forumUrl: item.ForumUrl || null
+  };
+}
+
+function dedupeDeals(deals) {
+  const seen = new Set();
+  return deals.filter(d => {
+    if (seen.has(d.id)) return false;
+    seen.add(d.id);
+    return true;
+  });
+}
+
+// Check if deal title/subtitle matches blocked words
+function scannerIsBlocked(deal, blockedWords) {
+  if (!blockedWords || !blockedWords.length) return false;
+  const titleLow = (deal.title || '').toLowerCase();
+  const subtitleLow = (deal.subtitle || '').toLowerCase();
+  return blockedWords.some(w => titleLow.includes(w) || subtitleLow.includes(w));
+}
+
+// Check product condition filter
+function scannerIsAllowedCondition(deal, settings) {
+  const cond = (deal.condition || '').toLowerCase().trim();
+  if (!cond || cond === 'new') return true;
+  if (cond.includes('open box') || cond.includes('openbox')) {
+    return !!settings.ntfyAllowOpenBox;
+  }
+  if (cond.includes('refurbished') || cond.includes('refurb')) {
+    return !!settings.ntfyAllowRefurbished;
+  }
+  return true; // unknown condition → allow
+}
+
+// Check quiet hours
+function scannerIsQuietHours(settings) {
+  if (!settings.quietStart || !settings.quietEnd) return false;
+  const now = new Date();
+  const current = now.getHours() * 60 + now.getMinutes();
+  const [sh, sm] = settings.quietStart.split(':').map(Number);
+  const [eh, em] = settings.quietEnd.split(':').map(Number);
+  const start = sh * 60 + sm;
+  const end = eh * 60 + em;
+  if (start <= end) return current >= start && current < end;
+  return current >= start || current < end; // overnight range
+}
+
+// Send ntfy.sh notification (server-side)
+async function scannerSendNtfy(deal, topic, settings) {
+  try {
+    const safeTitle = (deal.title || 'Deal')
+      .replace(/[^\x20-\x7E]/g, '')
+      .substring(0, 200) || 'Woot Deal';
+    const titleHeader = `${safeTitle} - $${deal.salePrice.toFixed(2)}`;
+
+    const body = `${deal.title}\nPrecio: $${deal.salePrice.toFixed(2)} Antes $${deal.listPrice.toFixed(2)}${deal.discount > 0 ? ` (${deal.discount}% OFF)` : ''}\n${deal.url}`;
+
+    const res = await fetch(`https://ntfy.sh/${encodeURIComponent(topic)}`, {
+      method: 'POST',
+      headers: {
+        'Title': titleHeader,
+        'Tags': 'moneybag,fire',
+        'Priority': deal.discount >= 60 ? '5' : '4',
+        'Click': deal.url
+      },
+      body
+    });
+
+    const logEntry = {
+      time: new Date().toISOString(),
+      title: deal.title,
+      price: deal.salePrice,
+      discount: deal.discount,
+      url: deal.url,
+      topic,
+      status: res.ok ? 'success' : 'error',
+      error: res.ok ? null : `HTTP ${res.status}`
+    };
+
+    // Save log
+    const logs = loadNtfyLogs();
+    logs.unshift(logEntry);
+    saveNtfyLogs(logs);
+
+    if (res.ok) {
+      console.log(`  📲 ntfy → ${deal.title.substring(0, 50)}... ($${deal.salePrice.toFixed(2)})`);
+    } else {
+      console.warn(`  ⚠️ ntfy error: HTTP ${res.status} for ${deal.title.substring(0, 40)}`);
+    }
+    return res.ok;
+  } catch (err) {
+    console.warn(`  ❌ ntfy failed: ${err.message}`);
+    const logs = loadNtfyLogs();
+    logs.unshift({
+      time: new Date().toISOString(),
+      title: deal.title,
+      price: deal.salePrice,
+      discount: deal.discount,
+      url: deal.url,
+      topic,
+      status: 'error',
+      error: err.message
+    });
+    saveNtfyLogs(logs);
+    return false;
+  }
+}
+
+// Send Discord webhook notification (server-side)
+async function scannerSendDiscord(deal, webhookUrl) {
+  try {
+    const embed = {
+      title: deal.title,
+      url: deal.url,
+      color: deal.discount >= 60 ? 0xef4444 : deal.discount >= 40 ? 0xf59e0b : 0x6366f1,
+      fields: [
+        { name: '💰 Price', value: `**$${deal.salePrice.toFixed(2)}**${deal.listPrice > 0 ? ` ~~$${deal.listPrice.toFixed(2)}~~` : ''}`, inline: true },
+        { name: '🔥 Discount', value: `**${deal.discount}% OFF**`, inline: true },
+        { name: '📦 Condition', value: deal.condition || 'N/A', inline: true }
+      ],
+      thumbnail: deal.photo ? { url: deal.photo } : undefined,
+      footer: { text: `Woot Alert Bot • ${deal.primaryCategory || 'Deal'}` },
+      timestamp: new Date().toISOString()
+    };
+
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Woot Bot',
+        avatar_url: 'https://d3gqasl9vmjfd8.cloudfront.net/assets/woot_logo.png',
+        embeds: [embed]
+      })
+    });
+
+    if (res.ok || res.status === 204) {
+      console.log(`  💬 Discord → ${deal.title.substring(0, 50)}...`);
+    } else {
+      console.warn(`  ⚠️ Discord error: HTTP ${res.status}`);
+    }
+  } catch (err) {
+    console.warn(`  ❌ Discord failed: ${err.message}`);
+  }
+}
+
+// ===== MAIN SCANNER FUNCTION =====
+async function scannerDoScan() {
+  if (scanner.isScanning) return;
+  scanner.isScanning = true;
+  scanner.lastError = null;
+
+  const settings = loadSettings() || {};
+  const apiKey = settings.apiKey;
+
+  if (!apiKey) {
+    scanner.isScanning = false;
+    scanner.lastError = 'No API key configured';
+    return;
+  }
+
+  const scanStart = Date.now();
+  const selectedCats = settings.categories || ['All'];
+  const feedsToFetch = selectedCats.includes('All') ? ['All'] : selectedCats;
+
+  try {
+    // Fetch all feeds in parallel
+    const promises = feedsToFetch.map(async (cat) => {
+      try {
+        const data = await fetchJSON(`${WOOT_API_BASE}/feed/${cat}`, {
+          'Accept': 'application/json',
+          'x-api-key': apiKey
+        });
+        if (data.Items && Array.isArray(data.Items)) {
+          return data.Items.map(item => normalizeAPIItem(item, data.MarketingName || cat));
+        }
+      } catch (e) {
+        console.warn(`  [Scanner] Feed ${cat} failed: ${e.message}`);
+      }
+      return [];
+    });
+
+    const results = await Promise.allSettled(promises);
+    let allDeals = [];
+    results.forEach(r => {
+      if (r.status === 'fulfilled' && r.value) allDeals.push(...r.value);
+    });
+
+    const allFailed = results.every(r => r.status === 'rejected');
+    if (allFailed && results.length > 0) {
+      throw results[0].reason || new Error('All feeds failed');
+    }
+
+    allDeals = dedupeDeals(allDeals);
+    scanner.currentDeals = allDeals;
+
+    // Find new deals
+    const seenIds = scannerLoadSeenIds();
+    const newDeals = allDeals.filter(d => !seenIds.has(d.id));
+    allDeals.forEach(d => seenIds.add(d.id));
+    scannerSaveSeenIds(seenIds);
+
+    scanner.scanCount++;
+    scanner.lastScanTime = Date.now();
+    const duration = ((Date.now() - scanStart) / 1000).toFixed(1);
+
+    console.log(`[${new Date().toLocaleTimeString()}] 🔍 Scan #${scanner.scanCount}: ${allDeals.length} deals (${newDeals.length} new) in ${duration}s`);
+
+    // === SEND NOTIFICATIONS (skip on first scan to avoid spam) ===
+    if (scanner.isFirstScan) {
+      scanner.isFirstScan = false;
+      console.log(`  ℹ️  First scan — notifications suppressed (${newDeals.length} deals marked as seen)`);
+    } else if (newDeals.length > 0) {
+      const allDefinedKws = (settings.keywordButtons || []).map(k => k.toLowerCase());
+      const blockedWords = (settings.blockedWords || []).map(w => w.toLowerCase());
+      const isQuiet = scannerIsQuietHours(settings);
+      let notifiedCount = 0;
+
+      for (const deal of newDeals) {
+        if (deal.isSoldOut) continue;
+        if (isQuiet) continue;
+        if (scannerIsBlocked(deal, blockedWords)) continue;
+        if (!scannerIsAllowedCondition(deal, settings)) continue;
+
+        // Keyword matching logic:
+        // - If keywords defined: only notify if deal matches a keyword
+        // - If no keywords defined: use ntfyMinDiscount threshold
+        const hasDefinedKws = allDefinedKws.length > 0;
+        const titleLow = deal.title.toLowerCase();
+        const subtitleLow = (deal.subtitle || '').toLowerCase();
+        const kwMatch = hasDefinedKws && allDefinedKws.some(kw => titleLow.includes(kw) || subtitleLow.includes(kw));
+
+        const shouldNotify = kwMatch || (!hasDefinedKws && deal.discount >= (settings.ntfyMinDiscount || 0));
+
+        if (!shouldNotify) continue;
+
+        // Send ntfy
+        if (settings.ntfyEnabled && settings.ntfyTopic) {
+          await scannerSendNtfy(deal, settings.ntfyTopic, settings);
+          notifiedCount++;
+        }
+
+        // Send Discord
+        if (settings.discordEnabled && settings.discordWebhook) {
+          await scannerSendDiscord(deal, settings.discordWebhook);
+          notifiedCount++;
+        }
+      }
+
+      if (notifiedCount > 0) {
+        scanner.totalNotified += notifiedCount;
+        console.log(`  📣 Sent ${notifiedCount} notification(s)`);
+      }
+    }
+
+  } catch (err) {
+    scanner.lastError = err.message;
+    console.error(`[${new Date().toLocaleTimeString()}] ❌ Scan failed: ${err.message}`);
+  }
+
+  scanner.isScanning = false;
+}
+
+// Start/restart the scanner interval
+function scannerStart(coldStart = false) {
+  if (scanner.timer) clearInterval(scanner.timer);
+
+  const settings = loadSettings() || {};
+  scanner.intervalSec = Math.max(60, settings.refreshInterval || 120);
+
+  console.log(`  ⏱️  Scanner interval: every ${scanner.intervalSec}s`);
+
+  // Only do immediate scan on cold start (server boot)
+  if (coldStart) {
+    setTimeout(() => {
+      scannerDoScan().catch(e => console.error('[Scanner] Initial scan error:', e));
+    }, 2000);
+  }
+
+  // Recurring scans
+  scanner.timer = setInterval(() => {
+    scannerDoScan().catch(e => console.error('[Scanner] Scan error:', e));
+  }, scanner.intervalSec * 1000);
+}
+
+// ===== START SERVER =====
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n  🚀 Woot Alert Bot Server (Hardened)`);
-  console.log(`  ──────────────────────────────────`);
+  console.log(`\n  🚀 Woot Alert Bot Server (Hardened + Server-Side Scanner)`);
+  console.log(`  ─────────────────────────────────────────────────────`);
   console.log(`  Local:    http://localhost:${PORT}`);
   console.log(`  Network:  http://${getLocalIP()}:${PORT}`);
   console.log(`  Auth:     ${AUTH_FILE} (hashed)`);
   console.log(`  Rate Limit: ${RATE_LIMIT_MAX} attempts / ${RATE_LIMIT_WINDOW/60000} min`);
   console.log(`  Sessions:   Persistent (${SESSIONS_FILE})`);
   console.log(`  Body Limit: ${MAX_BODY_SIZE / 1024}KB`);
-  console.log(`  ──────────────────────────────────\n`);
+  console.log(`  Scanner:    ✅ Autonomous (server-side)`);
+  console.log(`  ─────────────────────────────────────────────────────\n`);
+
+  // Start the autonomous scanner (coldStart = true for initial scan)
+  scannerStart(true);
 });
 
 function getLocalIP() {
