@@ -1,6 +1,4 @@
 // ===== WOOT ALERT BOT — LIVE API =====
-const WOOT_API = 'https://developer.woot.com';
-const FEED_NAMES = ['All', 'Electronics', 'Computers', 'Home', 'Tools', 'Sports', 'Wootoff', 'Featured', 'Clearance', 'Shirts', 'Gourmet'];
 
 const state = {
   deals: [],
@@ -58,7 +56,12 @@ async function loadSettings() {
     if (res.ok) {
       const serverSettings = await res.json();
       if (serverSettings && Object.keys(serverSettings).length > 0) {
+        // HIGH-04: Server masks apiKey — preserve local copy if server sends masked version
+        const localApiKey = state.settings.apiKey;
         Object.assign(state.settings, serverSettings);
+        if (serverSettings.apiKey && serverSettings.apiKey.includes('•')) {
+          state.settings.apiKey = localApiKey || ''; // Keep unmasked local copy
+        }
         // Restore activeKeywords from saved array
         if (serverSettings.activeKeywords && Array.isArray(serverSettings.activeKeywords)) {
           state.activeKeywords = new Set(serverSettings.activeKeywords);
@@ -121,15 +124,8 @@ function saveSettings() {
 function saveSeenIds() {
   const arr = [...state.seenOfferIds].slice(-2000);
   localStorage.setItem('woot-seen-ids', JSON.stringify(arr));
-  // DATA-02: Sync to server (debounced via existing save mechanism)
-  clearTimeout(state._seenSaveTimeout);
-  state._seenSaveTimeout = setTimeout(() => {
-    fetch('/api/seen-ids', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(arr)
-    }).catch(() => {});
-  }, 1000);
+  // CRIT-02: Don't POST to server — scanner server-side is the source of truth
+  // Frontend only persists locally for its own UI dedup
 }
 
 function applySettingsToUI() {
@@ -627,49 +623,7 @@ async function scanDeals() {
 
 // normalizeAPIItem and dedupeDeals moved to server.js — deals arrive pre-normalized
 
-// ===== DEMO DATA =====
-function generateDemoDeals() {
-  const products = [
-    { title:'Samsung 65" 4K Smart TV QLED', sale:449.99, list:799.99, cat:'ELECTRONICS', img:'https://placehold.co/400x300/1a1a2e/6366f1?text=Samsung+TV' },
-    { title:'Apple AirPods Pro (2nd Gen) USB-C', sale:189.99, list:249.99, cat:'ELECTRONICS', img:'https://placehold.co/400x300/1a1a2e/10b981?text=AirPods+Pro' },
-    { title:'Dyson V15 Detect Cordless Vacuum', sale:399.99, list:749.99, cat:'HOME', img:'https://placehold.co/400x300/1a1a2e/f59e0b?text=Dyson+V15' },
-    { title:'ASUS ROG Strix Gaming Laptop RTX 4060', sale:899.99, list:1399.99, cat:'COMPUTERS', img:'https://placehold.co/400x300/1a1a2e/ef4444?text=ASUS+ROG' },
-    { title:'Sony WH-1000XM5 Noise Cancelling Headphones', sale:248.00, list:399.99, cat:'ELECTRONICS', img:'https://placehold.co/400x300/1a1a2e/a855f7?text=Sony+XM5' },
-    { title:'Ninja Foodi 10-in-1 XL Pro Air Fry Oven', sale:149.99, list:299.99, cat:'HOME', img:'https://placehold.co/400x300/1a1a2e/f97316?text=Ninja+Foodi' },
-    { title:'DeWalt 20V MAX Drill/Driver Combo Kit', sale:129.99, list:249.99, cat:'TOOLS', img:'https://placehold.co/400x300/1a1a2e/eab308?text=DeWalt+Kit' },
-    { title:'Kindle Paperwhite 16GB (2024)', sale:94.99, list:149.99, cat:'ELECTRONICS', img:'https://placehold.co/400x300/1a1a2e/6366f1?text=Kindle' },
-  ];
-  
-  return products.map((p, i) => {
-    const discount = Math.round((1 - p.sale / p.list) * 100);
-    const hoursAgo = Math.floor(Math.random() * 24);
-    const start = new Date(Date.now() - hoursAgo * 3600000);
-    const end = new Date(Date.now() + (24 - hoursAgo) * 3600000);
-    return {
-      id: 'demo-' + i + '-' + Date.now(),
-      title: p.title,
-      subtitle: '',
-      url: 'https://www.woot.com',
-      photo: p.img,
-      salePrice: p.sale,
-      salePriceMax: p.sale,
-      listPrice: p.list,
-      listPriceMax: p.list,
-      discount,
-      condition: Math.random() > 0.3 ? 'New' : 'Refurbished',
-      categories: [p.cat],
-      primaryCategory: p.cat,
-      marketingName: p.cat,
-      isSoldOut: false,
-      isFeatured: Math.random() > 0.7,
-      isWootOff: false,
-      isFulfilledByAmazon: false,
-      startDate: start.toISOString(),
-      endDate: end.toISOString(),
-      forumUrl: null
-    };
-  });
-}
+// Demo data removed — deals arrive pre-normalized from server API
 
 // ===== ALERTS =====
 // checkAlerts — UI-only alerts (sound, desktop notifications)
@@ -1032,22 +986,4 @@ function exportDealsCSV() {
   showToast(`Exported ${state.deals.length} deals to CSV`, 'success');
 }
 
-// ===== QUIET HOURS =====
-function isQuietHours() {
-  const s = state.settings;
-  if (!s.quietStart || !s.quietEnd) return false;
-  const now = new Date();
-  const h = now.getHours();
-  const m = now.getMinutes();
-  const current = h * 60 + m;
-  const [sh, sm] = s.quietStart.split(':').map(Number);
-  const [eh, em] = s.quietEnd.split(':').map(Number);
-  const start = sh * 60 + sm;
-  const end = eh * 60 + em;
-  // Handle overnight range (e.g., 23:00 - 07:00)
-  if (start <= end) {
-    return current >= start && current < end;
-  } else {
-    return current >= start || current < end;
-  }
-}
+// Quiet hours now handled server-side only (scanner)

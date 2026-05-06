@@ -263,13 +263,23 @@ function saveNtfyLogs(logs) {
 // DATA-02: seenOfferIds sync
 function loadSeenIds() {
   try {
-    if (fs.existsSync(SEEN_IDS_FILE)) return JSON.parse(fs.readFileSync(SEEN_IDS_FILE, 'utf8'));
+    // MED-04: Check if file is actually a directory (Docker bind mount bug)
+    if (fs.existsSync(SEEN_IDS_FILE)) {
+      const stat = fs.statSync(SEEN_IDS_FILE);
+      if (stat.isDirectory()) {
+        console.warn('[SeenIds] seen-ids.json is a directory — removing and recreating as file');
+        fs.rmdirSync(SEEN_IDS_FILE, { recursive: true });
+        fs.writeFileSync(SEEN_IDS_FILE, '[]', 'utf8');
+        return [];
+      }
+      return JSON.parse(fs.readFileSync(SEEN_IDS_FILE, 'utf8'));
+    }
   } catch (e) { console.error('[SeenIds] Load error:', e.message); }
   return [];
 }
 
 function saveSeenIds(ids) {
-  const trimmed = Array.isArray(ids) ? ids.slice(-2000) : [];
+  const trimmed = Array.isArray(ids) ? ids.slice(-5000) : [];
   atomicWriteJSON(SEEN_IDS_FILE, trimmed);
 }
 
@@ -375,10 +385,13 @@ const server = http.createServer(async (req, res) => {
   }
 
   // === PROTECTED: Settings API ===
+  // HIGH-04: Mask API key in response
   if (req.method === 'GET' && urlPath === '/api/settings') {
-    const settings = loadSettings();
+    const settings = loadSettings() || {};
+    const safe = { ...settings };
+    if (safe.apiKey) safe.apiKey = safe.apiKey.substring(0, 8) + '••••••••';
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(settings || {}));
+    res.end(JSON.stringify(safe));
     return;
   }
 
@@ -392,6 +405,11 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: validationError }));
         return;
+      }
+      // HIGH-04: If frontend sends masked API key, preserve the real one from disk
+      if (data.apiKey && data.apiKey.includes('•')) {
+        const currentSettings = loadSettings() || {};
+        data.apiKey = currentSettings.apiKey || '';
       }
       saveSettingsFile(data);
       // Restart scanner with new settings (interval, keywords, categories may have changed)
@@ -413,12 +431,24 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // HIGH-01: Validate ntfy-log entry schema
   if (req.method === 'POST' && urlPath === '/api/ntfy-logs') {
     try {
       const body = await readBody(req);
       const entry = JSON.parse(body);
+      // Validate required fields and sanitize
+      const sanitized = {
+        time: typeof entry.time === 'string' ? entry.time.substring(0, 50) : new Date().toISOString(),
+        title: typeof entry.title === 'string' ? entry.title.substring(0, 300) : 'Unknown',
+        price: typeof entry.price === 'number' ? entry.price : 0,
+        discount: typeof entry.discount === 'number' ? entry.discount : 0,
+        url: typeof entry.url === 'string' ? entry.url.substring(0, 500) : '',
+        topic: typeof entry.topic === 'string' ? entry.topic.substring(0, 100) : '',
+        status: ['success', 'error'].includes(entry.status) ? entry.status : 'unknown',
+        error: typeof entry.error === 'string' ? entry.error.substring(0, 200) : null
+      };
       const logs = loadNtfyLogs();
-      logs.unshift(entry);
+      logs.unshift(sanitized);
       saveNtfyLogs(logs);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
@@ -443,6 +473,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // CRIT-01: Merge frontend IDs into server's in-memory Set (don't replace)
   if (req.method === 'POST' && urlPath === '/api/seen-ids') {
     try {
       const body = await readBody(req);
@@ -452,9 +483,17 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: 'Expected an array of IDs' }));
         return;
       }
-      saveSeenIds(ids);
+      // Merge into scanner's in-memory Set (server is source of truth)
+      let merged = 0;
+      ids.forEach(id => {
+        if (typeof id === 'string' && id.length < 200 && !scanner.seenIds.has(id)) {
+          scanner.seenIds.add(id);
+          merged++;
+        }
+      });
+      if (merged > 0) scannerPersistSeenIds();
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true }));
+      res.end(JSON.stringify({ ok: true, merged }));
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Invalid JSON' }));
@@ -505,17 +544,20 @@ const server = http.createServer(async (req, res) => {
   }
 
   // === PROTECTED: Static files (MUST be last route) ===
+  // HIGH-03: Path traversal fix using path.resolve
   let filePath = urlPath === '/' ? '/index.html' : urlPath;
   const basename = path.basename(filePath);
-  const blocked = ['auth.json', 'settings.json', 'ntfy-logs.json', 'sessions.json', 'seen-ids.json', 'server.js'];
+  const blocked = ['auth.json', 'settings.json', 'ntfy-logs.json', 'sessions.json', 'seen-ids.json', 'server.js', 'rpi_update.py', 'rpi_check.py'];
   if (blocked.includes(basename)) {
     res.writeHead(403);
     res.end('Forbidden');
     return;
   }
 
-  filePath = path.join(__dirname, filePath);
-  if (!filePath.startsWith(__dirname)) { res.writeHead(403); res.end('Forbidden'); return; }
+  filePath = path.resolve(__dirname, '.' + urlPath);
+  if (!filePath.startsWith(__dirname + path.sep) && filePath !== __dirname) {
+    res.writeHead(403); res.end('Forbidden'); return;
+  }
 
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME[ext] || 'application/octet-stream';
@@ -551,25 +593,56 @@ function scannerInitSeenIds() {
   console.log(`  📋 Loaded ${scanner.seenIds.size} seen IDs from disk`);
 }
 
+// CRIT-03: Debounced persist — writes at most every 60s instead of every scan
+let _persistTimer = null;
 function scannerPersistSeenIds() {
+  if (_persistTimer) return; // Already scheduled
+  _persistTimer = setTimeout(() => {
+    // HIGH-02: Cap in-memory Set to prevent memory leak
+    if (scanner.seenIds.size > 10000) {
+      const arr = [...scanner.seenIds].slice(-5000);
+      scanner.seenIds = new Set(arr);
+    }
+    const arr = [...scanner.seenIds].slice(-5000);
+    saveSeenIds(arr);
+    _persistTimer = null;
+  }, 60000); // Write at most once per minute
+}
+
+// Force immediate persist (for shutdown/settings save)
+function scannerPersistSeenIdsNow() {
+  if (_persistTimer) { clearTimeout(_persistTimer); _persistTimer = null; }
+  if (scanner.seenIds.size > 10000) {
+    const arr = [...scanner.seenIds].slice(-5000);
+    scanner.seenIds = new Set(arr);
+  }
   const arr = [...scanner.seenIds].slice(-5000);
   saveSeenIds(arr);
 }
 
-// HTTP fetch using Node.js built-in (works on Node 18+)
+// MED-02: HTTP fetch with 15s timeout (prevents scanner hang)
 async function fetchJSON(url, headers = {}) {
-  const res = await fetch(url, { headers });
-  if (!res.ok) {
-    if (res.status === 403) throw new Error('Invalid API Key (403 Forbidden)');
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const text = await res.text();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    return JSON.parse(text);
-  } catch (e) {
-    // Try stripping BOM
-    const cleaned = text.replace(/^\xEF\xBB\xBF/, '').trim();
-    return JSON.parse(cleaned);
+    const res = await fetch(url, { headers, signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) {
+      if (res.status === 403) throw new Error('Invalid API Key (403 Forbidden)');
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      // Try stripping BOM
+      const cleaned = text.replace(/^\xEF\xBB\xBF/, '').trim();
+      return JSON.parse(cleaned);
+    }
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') throw new Error('Request timeout (15s)');
+    throw err;
   }
 }
 
@@ -751,25 +824,25 @@ async function scannerSendDiscord(deal, webhookUrl) {
 }
 
 // ===== MAIN SCANNER FUNCTION =====
+// MED-03: try/finally ensures isScanning is always reset
 async function scannerDoScan() {
   if (scanner.isScanning) return;
   scanner.isScanning = true;
   scanner.lastError = null;
 
-  const settings = loadSettings() || {};
-  const apiKey = settings.apiKey;
-
-  if (!apiKey) {
-    scanner.isScanning = false;
-    scanner.lastError = 'No API key configured';
-    return;
-  }
-
-  const scanStart = Date.now();
-  const selectedCats = settings.categories || ['All'];
-  const feedsToFetch = selectedCats.includes('All') ? ['All'] : selectedCats;
-
   try {
+    const settings = loadSettings() || {};
+    const apiKey = settings.apiKey;
+
+    if (!apiKey) {
+      scanner.lastError = 'No API key configured';
+      return;
+    }
+
+    const scanStart = Date.now();
+    const selectedCats = settings.categories || ['All'];
+    const feedsToFetch = selectedCats.includes('All') ? ['All'] : selectedCats;
+
     // Fetch all feeds in parallel
     const promises = feedsToFetch.map(async (cat) => {
       try {
@@ -803,7 +876,7 @@ async function scannerDoScan() {
     // Find new deals (using in-memory Set for accuracy)
     const newDeals = allDeals.filter(d => !scanner.seenIds.has(d.id));
     allDeals.forEach(d => scanner.seenIds.add(d.id));
-    // Persist to disk (trimmed to last 5000)
+    // Persist to disk (debounced — writes at most once per minute)
     scannerPersistSeenIds();
 
     scanner.scanCount++;
@@ -862,9 +935,9 @@ async function scannerDoScan() {
   } catch (err) {
     scanner.lastError = err.message;
     console.error(`[${new Date().toLocaleTimeString()}] ❌ Scan failed: ${err.message}`);
+  } finally {
+    scanner.isScanning = false;
   }
-
-  scanner.isScanning = false;
 }
 
 // Start/restart the scanner interval
