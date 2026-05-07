@@ -10,7 +10,7 @@ WORKDIR /app
 COPY package.json ./
 COPY server.js app.js style.css sw.js ./
 COPY index.html login.html ntfy-logs.html ./
-COPY manifest.json ecosystem.config.js ./
+COPY manifest.json ./
 
 # Create data directory for persistent config
 RUN mkdir -p /app/logs /app/data

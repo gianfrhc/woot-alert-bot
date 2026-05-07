@@ -37,7 +37,9 @@ const state = {
   searchTimeout: null,
   saveTimeout: null,
   _bellTimeout: null,
-  favorites: new Set()
+  favorites: new Set(),
+  scannerActive: false,
+  serverInterval: 120
 };
 
 // ===== INIT =====
@@ -590,6 +592,20 @@ async function scanDeals() {
     renderDeals();
     state.hasRenderedOnce = true;
     updateStats();
+
+    // Sync with server scanner status (fixes "Demo Mode" + countdown sync)
+    try {
+      const statusRes = await fetch('/api/scan-status');
+      if (statusRes.ok) {
+        const status = await statusRes.json();
+        state.scannerActive = status.scanCount > 0 || status.dealsCount > 0;
+        state.serverInterval = status.intervalSec || 120;
+        if (status.nextScanIn > 0) {
+          state.countdown = Math.min(status.nextScanIn, state.serverInterval);
+        }
+      }
+    } catch(e) { /* scan-status unavailable, use local state */ }
+
     updateStatus('active');
 
     const scanDuration = ((Date.now() - scanStart) / 1000).toFixed(1);
@@ -896,7 +912,7 @@ function updateStatus(s) {
   const txt = document.getElementById('status-text');
   el.className = 'status-indicator' + (s === 'active' ? ' active' : s === 'error' ? ' error' : '');
   if (s === 'active') {
-    txt.textContent = state.settings.apiKey ? '🔴 Live' : 'Demo Mode';
+    txt.textContent = state.scannerActive ? '🔴 Live' : 'Connecting...';
   } else if (s === 'scanning') {
     txt.textContent = 'Scanning...';
   } else if (s === 'error') {
@@ -926,13 +942,14 @@ function showToast(msg, type = 'info') {
 // ===== AUTO REFRESH =====
 function startAutoRefresh() {
   if (state.timer) clearInterval(state.timer);
-  const interval = state.settings.refreshInterval;
+  // Use server interval if available, otherwise local setting
+  const interval = state.serverInterval || state.settings.refreshInterval;
   if (interval <= 0) {
     document.getElementById('scan-timer').style.display = 'none';
     return;
   }
   document.getElementById('scan-timer').style.display = '';
-  state.countdown = interval;
+  if (!state.countdown || state.countdown <= 0) state.countdown = interval;
   state.timer = setInterval(() => {
     state.countdown--;
     if (state.countdown <= 0) { scanDeals(); state.countdown = interval; }
@@ -946,7 +963,11 @@ function startAutoRefresh() {
   }, 1000);
 }
 
-function resetCountdown() { state.countdown = state.settings.refreshInterval; }
+function resetCountdown() {
+  // Use server-synced countdown if available, otherwise local interval
+  const interval = state.serverInterval || state.settings.refreshInterval;
+  if (!state.countdown || state.countdown <= 0) state.countdown = interval;
+}
 
 // F-23: Regex escHtml (no DOM allocation per call)
 function escHtml(str) {

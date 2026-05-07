@@ -26,5 +26,8 @@ desktop.ini
 .vscode/
 .idea/
 
-# Test files
+# Test/deploy scripts
 test_api.py
+rpi_*.py
+docker-init.sh
+ecosystem.config.js
