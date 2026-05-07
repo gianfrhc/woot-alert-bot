@@ -554,15 +554,15 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  filePath = path.resolve(__dirname, '.' + urlPath);
-  if (!filePath.startsWith(__dirname + path.sep) && filePath !== __dirname) {
+  const resolvedPath = path.resolve(__dirname, '.' + filePath);
+  if (!resolvedPath.startsWith(__dirname + path.sep) && resolvedPath !== __dirname) {
     res.writeHead(403); res.end('Forbidden'); return;
   }
 
-  const ext = path.extname(filePath).toLowerCase();
+  const ext = path.extname(resolvedPath).toLowerCase();
   const contentType = MIME[ext] || 'application/octet-stream';
 
-  fs.readFile(filePath, (err, data) => {
+  fs.readFile(resolvedPath, (err, data) => {
     if (err) { res.writeHead(404); res.end('Not Found'); return; }
     res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' });
     res.end(data);
