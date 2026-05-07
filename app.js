@@ -593,12 +593,15 @@ async function scanDeals() {
     state.hasRenderedOnce = true;
     updateStats();
 
-    // Sync with server scanner status (fixes "Demo Mode" + countdown sync)
+    // If we got deals from the server, the scanner is definitely active
+    if (deals.length > 0) state.scannerActive = true;
+
+    // Sync countdown with server scanner schedule
     try {
       const statusRes = await fetch('/api/scan-status');
       if (statusRes.ok) {
         const status = await statusRes.json();
-        state.scannerActive = status.scanCount > 0 || status.dealsCount > 0;
+        if (status.scanCount > 0 || status.dealsCount > 0) state.scannerActive = true;
         state.serverInterval = status.intervalSec || 120;
         if (status.nextScanIn > 0) {
           state.countdown = Math.min(status.nextScanIn, state.serverInterval);
