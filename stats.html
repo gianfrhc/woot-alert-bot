@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stats Dashboard — Woot Alert Bot</title>
+    <meta name="description" content="Scanner performance, notification analytics, and deal statistics for Woot Alert Bot.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <meta name="theme-color" content="#6366f1">
+</head>
+<body>
+<div class="app-wrapper">
+    <div class="bg-gradient"></div>
+    <div class="bg-grid"></div>
+
+    <div class="stats-page">
+        <div class="stats-header">
+            <div style="display:flex;align-items:center;gap:14px">
+                <a href="/" class="btn btn-icon" title="Back to Deals" style="color:var(--text-muted)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                </a>
+                <div>
+                    <h1>📊 Stats Dashboard</h1>
+                    <p class="stats-refresh" id="stats-refresh">Loading...</p>
+                </div>
+            </div>
+            <button class="btn btn-icon btn-theme" id="btn-theme-stats" title="Toggle Dark/Light Mode">
+                <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+            </button>
+        </div>
+
+        <!-- Overview Cards -->
+        <div class="stats-grid" id="overview-grid">
+            <div class="stats-card">
+                <h3>⚡ Total Scans</h3>
+                <div class="stats-big-number" id="s-total-scans">—</div>
+                <div class="stats-sub" id="s-uptime"></div>
+            </div>
+            <div class="stats-card">
+                <h3>📦 Active Deals</h3>
+                <div class="stats-big-number" id="s-total-deals">—</div>
+                <div class="stats-sub" id="s-seen-ids"></div>
+            </div>
+            <div class="stats-card">
+                <h3>📲 Notifications Sent</h3>
+                <div class="stats-big-number" id="s-total-notified">—</div>
+                <div class="stats-sub" id="s-connected"></div>
+            </div>
+            <div class="stats-card">
+                <h3>⏱️ Scan Interval</h3>
+                <div class="stats-big-number" id="s-interval">—</div>
+                <div class="stats-sub" id="s-last-error"></div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="stats-grid">
+            <!-- Category Breakdown -->
+            <div class="stats-card" style="grid-column: span 2">
+                <h3>🏷️ Deals by Category</h3>
+                <div class="chart-bar" id="chart-categories"></div>
+            </div>
+
+            <!-- Price Distribution -->
+            <div class="stats-card">
+                <h3>💰 Price Distribution</h3>
+                <div class="chart-bar" id="chart-prices"></div>
+            </div>
+        </div>
+
+        <!-- Second Row -->
+        <div class="stats-grid">
+            <!-- Scan Timeline -->
+            <div class="stats-card" style="grid-column: span 2">
+                <h3>🔍 Scan Timeline <span style="font-weight:400;font-size:0.72rem;color:var(--text-muted)">(last 100 scans — bar height = deal count)</span></h3>
+                <div class="scan-timeline" id="chart-scans"></div>
+            </div>
+
+            <!-- Notifications by Day -->
+            <div class="stats-card">
+                <h3>🔔 Notifications (7 days)</h3>
+                <div class="chart-bar" id="chart-notifications"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Theme
+const saved = localStorage.getItem('woot-theme');
+if (saved) document.documentElement.setAttribute('data-theme', saved);
+else if (window.matchMedia('(prefers-color-scheme: light)').matches) document.documentElement.setAttribute('data-theme', 'light');
+document.getElementById('btn-theme-stats').addEventListener('click', () => {
+    const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('woot-theme', next);
+});
+
+async function loadStats() {
+    try {
+        const res = await fetch('/api/stats');
+        if (!res.ok) { document.getElementById('stats-refresh').textContent = 'Error loading stats'; return; }
+        const s = await res.json();
+
+        // Overview
+        document.getElementById('s-total-scans').textContent = s.totalScans.toLocaleString();
+        document.getElementById('s-uptime').textContent = `Uptime: ${formatUptime(s.uptime)}`;
+        document.getElementById('s-total-deals').textContent = s.totalDealsNow.toLocaleString();
+        document.getElementById('s-seen-ids').textContent = `${s.seenIdsCount.toLocaleString()} unique deals tracked`;
+        document.getElementById('s-total-notified').textContent = s.totalNotified.toLocaleString();
+        document.getElementById('s-connected').textContent = `${s.connectedClients} live client(s)`;
+        document.getElementById('s-interval').textContent = `${s.intervalSec}s`;
+        document.getElementById('s-last-error').textContent = s.lastError ? `⚠️ ${s.lastError}` : '✅ No errors';
+
+        // Category chart
+        renderBarChart('chart-categories', s.categoryBreakdown, { colorFn: categoryColor });
+
+        // Price distribution
+        const priceLabels = ['$0-25', '$25-50', '$50-100', '$100-250', '$250-500', '$500+'];
+        const priceObj = {};
+        priceLabels.forEach((l, i) => { priceObj[l] = s.priceDistribution[i]; });
+        renderBarChart('chart-prices', priceObj, { color: 'var(--success)' });
+
+        // Scan timeline
+        renderScanTimeline(s.scanHistory || []);
+
+        // Notifications by day
+        renderNotificationChart(s.notificationsByDay || {});
+
+        document.getElementById('stats-refresh').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+    } catch (e) {
+        document.getElementById('stats-refresh').textContent = 'Failed to load stats';
+    }
+}
+
+function renderBarChart(containerId, data, opts = {}) {
+    const el = document.getElementById(containerId);
+    const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
+    if (entries.length === 0) { el.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem">No data</span>'; return; }
+    const maxVal = Math.max(...entries.map(e => e[1]), 1);
+    el.innerHTML = entries.slice(0, 12).map(([label, val]) => {
+        const pct = (val / maxVal * 100).toFixed(1);
+        const color = opts.colorFn ? opts.colorFn(label) : (opts.color || 'var(--accent)');
+        return `<div class="chart-bar-item">
+            <span class="chart-bar-value">${val}</span>
+            <div class="chart-bar-fill" style="height:${pct}%;background:${color}"></div>
+            <span class="chart-bar-label">${label}</span>
+        </div>`;
+    }).join('');
+}
+
+function renderScanTimeline(history) {
+    const el = document.getElementById('chart-scans');
+    if (history.length === 0) { el.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem">No scan data yet</span>'; return; }
+    const maxDeals = Math.max(...history.map(h => h.dealCount), 1);
+    el.innerHTML = history.map(h => {
+        const pct = (h.dealCount / maxDeals * 100).toFixed(1);
+        const color = h.notified > 0 ? 'var(--hot)' : h.newCount > 0 ? 'var(--success)' : 'var(--accent)';
+        const time = new Date(h.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return `<div class="scan-bar" style="height:${pct}%;background:${color}" title="${time}: ${h.dealCount} deals, ${h.newCount} new, ${h.notified || 0} notified, ${h.duration}s"></div>`;
+    }).join('');
+}
+
+function renderNotificationChart(byDay) {
+    const el = document.getElementById('chart-notifications');
+    const days = Object.keys(byDay).sort();
+    if (days.length === 0) { el.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem">No notifications in 7 days</span>'; return; }
+    const maxVal = Math.max(...days.map(d => (byDay[d].success || 0) + (byDay[d].error || 0)), 1);
+    el.innerHTML = days.map(day => {
+        const s = byDay[day].success || 0;
+        const e = byDay[day].error || 0;
+        const total = s + e;
+        const pct = (total / maxVal * 100).toFixed(1);
+        return `<div class="chart-bar-item">
+            <span class="chart-bar-value">${total}</span>
+            <div class="chart-bar-fill" style="height:${pct}%;background:${e > 0 ? 'var(--danger)' : 'var(--success)'}"></div>
+            <span class="chart-bar-label">${day.slice(5)}</span>
+        </div>`;
+    }).join('');
+}
+
+function categoryColor(cat) {
+    const colors = {
+        'Electronics': '#6366f1', 'Computers': '#818cf8', 'Home': '#10b981',
+        'Tools': '#f59e0b', 'Sports': '#ef4444', 'Gourmet': '#ec4899',
+        'Clearance': '#8b5cf6', 'Shirts': '#14b8a6', 'Other': '#64748b'
+    };
+    return colors[cat] || 'var(--accent)';
+}
+
+function formatUptime(seconds) {
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
+// Load on page load, refresh every 30s
+loadStats();
+setInterval(loadStats, 30000);
+</script>
+</body>
+</html>

@@ -44,11 +44,13 @@ const state = {
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', async () => {
+  initTheme();
   await loadSettings();
   bindEvents();
   requestNotificationPermission();
   scanDeals();
   startAutoRefresh();
+  connectSSE();
 });
 
 async function loadSettings() {
@@ -99,6 +101,46 @@ async function loadSettings() {
   // Load favorites
   const favs = localStorage.getItem('woot-favorites');
   if (favs) { try { JSON.parse(favs).forEach(id => state.favorites.add(id)); } catch(e) {} }
+  // Migrate favorites to server
+  loadFavoritesFromServer();
+}
+
+// ===== DARK / LIGHT MODE =====
+function initTheme() {
+  const saved = localStorage.getItem('woot-theme');
+  if (saved) {
+    document.documentElement.setAttribute('data-theme', saved);
+  } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+}
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('woot-theme', next);
+  // Update meta theme-color
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = next === 'light' ? '#f5f5f7' : '#6366f1';
+}
+
+// ===== SERVER FAVORITES =====
+async function loadFavoritesFromServer() {
+  try {
+    const res = await fetch('/api/favorites');
+    if (res.ok) {
+      const serverFavs = await res.json();
+      if (Array.isArray(serverFavs)) {
+        serverFavs.forEach(id => state.favorites.add(id));
+        // Migrate localStorage favs to server
+        const localFavs = [...state.favorites];
+        const toSync = localFavs.filter(id => !serverFavs.includes(id));
+        for (const id of toSync.slice(0, 50)) {
+          fetch('/api/favorites', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({id}) }).catch(() => {});
+        }
+      }
+    }
+  } catch(e) {}
 }
 
 function saveSettings() {
@@ -184,6 +226,8 @@ function bindEvents() {
   document.getElementById('btn-reset-settings').addEventListener('click', resetSettings);
   document.getElementById('btn-clear-alerts').addEventListener('click', clearAlerts);
   document.getElementById('btn-export-csv').addEventListener('click', exportDealsCSV);
+  const themeBtn = document.getElementById('btn-theme');
+  if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
 
   // F-06: Escape closes settings
   document.addEventListener('keydown', e => {
@@ -640,6 +684,63 @@ async function scanDeals() {
   resetCountdown();
 }
 
+// ===== SSE LIVE UPDATES =====
+let _sseSource = null;
+function connectSSE() {
+  if (_sseSource) { _sseSource.close(); _sseSource = null; }
+  try {
+    _sseSource = new EventSource('/api/events');
+    _sseSource.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'connected') {
+          state.serverInterval = data.intervalSec || 120;
+          if (data.nextScanIn > 0) state.countdown = Math.min(data.nextScanIn, state.serverInterval);
+          console.log('[SSE] Connected —', data.dealCount, 'deals');
+        } else if (data.type === 'scan-complete') {
+          state.serverInterval = data.nextScanIn || state.serverInterval;
+          state.countdown = data.nextScanIn || state.serverInterval;
+          state.scannerActive = true;
+          // Auto-refresh deals if there are new ones
+          if (data.newCount > 0 || state.deals.length === 0) {
+            fetchDealsQuiet();
+          }
+          // Update last scan time display
+          if (data.lastScan) {
+            document.getElementById('stat-last-scan').textContent = new Date(data.lastScan).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+          }
+          updateStatus('active');
+        } else if (data.type === 'scan-error') {
+          console.warn('[SSE] Scan error:', data.error);
+        }
+      } catch(err) {}
+    };
+    _sseSource.onerror = () => {
+      console.warn('[SSE] Connection lost, reconnecting...');
+    };
+  } catch(e) {
+    console.warn('[SSE] EventSource not supported');
+  }
+}
+
+// Quiet fetch (no button animation, no toast)
+async function fetchDealsQuiet() {
+  try {
+    const res = await fetch('/api/deals');
+    if (!res.ok) return;
+    const data = await res.json();
+    const deals = data.deals || [];
+    const isFirstLoad = state.seenOfferIds.size === 0;
+    const newDeals = deals.filter(d => !state.seenOfferIds.has(d.id));
+    deals.forEach(d => state.seenOfferIds.add(d.id));
+    saveSeenIds();
+    state.deals = deals;
+    if (!isFirstLoad && newDeals.length > 0) checkAlerts(newDeals);
+    renderDeals();
+    updateStats();
+  } catch(e) {}
+}
+
 // normalizeAPIItem and dedupeDeals moved to server.js — deals arrive pre-normalized
 
 // Demo data removed — deals arrive pre-normalized from server API
@@ -769,7 +870,29 @@ function renderDeals() {
   }
 
   // Search
-  if (search) filtered = filtered.filter(d => d.title.toLowerCase().includes(search));
+  // Search filter (fuzzy multi-token)
+  if (search) {
+    const tokens = search.split(/\s+/).filter(Boolean);
+    if (tokens.length > 0) {
+      filtered = filtered.map(d => {
+        const haystack = [d.title, d.subtitle || '', d.primaryCategory || ''].join(' ').toLowerCase();
+        let score = 0;
+        const matchedTokens = [];
+        tokens.forEach(tok => {
+          if (haystack.includes(tok)) { score += 2; matchedTokens.push(tok); }
+          else {
+            // Fuzzy: check each word in haystack for edit distance <= 2
+            const words = haystack.split(/\s+/);
+            const fuzzy = words.some(w => levenshtein(w, tok) <= 2 && tok.length > 2);
+            if (fuzzy) { score += 1; matchedTokens.push(tok); }
+          }
+        });
+        return { deal: d, score, matchedTokens, pct: matchedTokens.length / tokens.length };
+      }).filter(r => r.pct >= 0.5)
+        .sort((a, b) => b.score - a.score)
+        .map(r => { r.deal._matchedTokens = r.matchedTokens; return r.deal; });
+    }
+  }
 
   // Quick filters
   if (filter === 'hot') filtered = filtered.filter(d => d.discount >= 60);
@@ -843,6 +966,7 @@ function renderDeals() {
           ${deal.listPrice > 0 ? `<span class="deal-list-price">$${deal.listPrice.toFixed(2)}</span>` : ''}
           ${deal.discount > 0 ? `<span class="deal-savings">Save $${(deal.listPrice - deal.salePrice).toFixed(2)}</span>` : ''}
         </div>
+        <div class="sparkline-slot" data-deal-id="${deal.id}"></div>
       </div>
       <div class="deal-footer">
         <span class="deal-meta">${timeLeftText}</span>
@@ -862,14 +986,20 @@ function renderDeals() {
       toggleFavorite(btn.dataset.dealId);
     });
   });
+
+  // Lazy-load sparklines for visible deals
+  const visibleIds = filtered.slice(0, 30).map(d => d.id);
+  if (visibleIds.length > 0) fetchSparklines(visibleIds);
 }
 
 function toggleFavorite(dealId) {
   if (state.favorites.has(dealId)) {
     state.favorites.delete(dealId);
+    fetch(`/api/favorites/${encodeURIComponent(dealId)}`, { method: 'DELETE' }).catch(() => {});
     showToast('Removed from favorites', 'info');
   } else {
     state.favorites.add(dealId);
+    fetch('/api/favorites', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({id: dealId}) }).catch(() => {});
     showToast('Added to favorites! 💖', 'success');
   }
   saveFavorites();
@@ -1009,3 +1139,63 @@ function exportDealsCSV() {
 }
 
 // Quiet hours now handled server-side only (scanner)
+
+// ===== FUZZY SEARCH (Levenshtein distance) =====
+function levenshtein(a, b) {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      const cost = b[i-1] === a[j-1] ? 0 : 1;
+      matrix[i][j] = Math.min(matrix[i-1][j]+1, matrix[i][j-1]+1, matrix[i-1][j-1]+cost);
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+// ===== SPARKLINE RENDERING =====
+function renderSparkline(points) {
+  if (!points || points.length < 2) return '';
+  const prices = points.map(p => p.p);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min || 1;
+  const w = 80, h = 28, pad = 2;
+  const coords = prices.map((p, i) => {
+    const x = pad + (i / (prices.length - 1)) * (w - pad * 2);
+    const y = pad + (1 - (p - min) / range) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const last = prices[prices.length - 1];
+  const first = prices[0];
+  const color = last <= first ? 'var(--success)' : 'var(--danger)';
+  const areaCoords = coords.join(' ') + ` ${w-pad},${h} ${pad},${h}`;
+  return `<svg class="deal-sparkline" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <polygon points="${areaCoords}" fill="${color}" opacity="0.15"/>
+    <polyline points="${coords.join(' ')}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="${coords[coords.length-1].split(',')[0]}" cy="${coords[coords.length-1].split(',')[1]}" r="2" fill="${color}"/>
+  </svg><span class="sparkline-labels"><span>$${min.toFixed(0)}</span><span>$${max.toFixed(0)}</span></span>`;
+}
+
+// Fetch sparklines for visible deals
+let _sparklineCache = {};
+async function fetchSparklines(dealIds) {
+  const uncached = dealIds.filter(id => !_sparklineCache[id]);
+  if (uncached.length === 0) return;
+  try {
+    const res = await fetch(`/api/price-history?ids=${uncached.slice(0, 30).join(',')}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    Object.assign(_sparklineCache, data);
+    // Inject sparklines into rendered cards
+    uncached.forEach(id => {
+      const el = document.querySelector(`.sparkline-slot[data-deal-id="${id}"]`);
+      if (el && _sparklineCache[id] && _sparklineCache[id].length >= 2) {
+        el.innerHTML = renderSparkline(_sparklineCache[id]);
+      }
+    });
+  } catch(e) {}
+}

@@ -10,6 +10,8 @@ const AUTH_FILE = path.join(__dirname, 'auth.json');
 const NTFY_LOGS_FILE = path.join(__dirname, 'ntfy-logs.json');
 const SESSIONS_FILE = path.join(__dirname, 'sessions.json');
 const SEEN_IDS_FILE = path.join(__dirname, 'seen-ids.json');
+const FAVORITES_FILE = path.join(__dirname, 'favorites.json');
+const PRICE_HISTORY_FILE = path.join(__dirname, 'price-history.json');
 const MAX_BODY_SIZE = 1024 * 1024; // 1MB
 
 // ===== SAFE FILE WRITES (DATA-01) =====
@@ -543,11 +545,103 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // === PROTECTED: SSE Live Updates ===
+  if (req.method === 'GET' && urlPath === '/api/events') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    });
+    res.write(`data: ${JSON.stringify({ type: 'connected', scanCount: scanner.scanCount, dealCount: scanner.currentDeals.length, intervalSec: scanner.intervalSec, nextScanIn: scanner.intervalSec - Math.floor((Date.now() - (scanner.lastScanTime || 0)) / 1000) })}\n\n`);
+    sseClients.add(res);
+    req.on('close', () => sseClients.delete(res));
+    return;
+  }
+
+  // === PROTECTED: Favorites API ===
+  if (req.method === 'GET' && urlPath === '/api/favorites') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(loadFavorites()));
+    return;
+  }
+  if (req.method === 'POST' && urlPath === '/api/favorites') {
+    try {
+      const body = await readBody(req);
+      const { id } = JSON.parse(body);
+      if (!id || typeof id !== 'string') { res.writeHead(400); res.end('{"error":"Missing id"}'); return; }
+      const favs = loadFavorites();
+      if (!favs.includes(id)) { favs.unshift(id); if (favs.length > 500) favs.pop(); saveFavorites(favs); }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (e) { res.writeHead(400); res.end('{"error":"Invalid"}'); }
+    return;
+  }
+  if (req.method === 'DELETE' && urlPath.startsWith('/api/favorites/')) {
+    const id = decodeURIComponent(urlPath.slice('/api/favorites/'.length));
+    const favs = loadFavorites().filter(f => f !== id);
+    saveFavorites(favs);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  // === PROTECTED: Price History API ===
+  if (req.method === 'GET' && urlPath === '/api/price-history') {
+    const idsParam = new URL(req.url, `http://${req.headers.host}`).searchParams.get('ids') || '';
+    const ids = idsParam.split(',').filter(Boolean).slice(0, 50);
+    const result = {};
+    ids.forEach(id => { if (priceHistory[id]) result[id] = priceHistory[id]; });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
+    return;
+  }
+
+  // === PROTECTED: Stats API ===
+  if (req.method === 'GET' && urlPath === '/api/stats') {
+    const ntfyLogs = loadNtfyLogs();
+    const catBreakdown = {};
+    scanner.currentDeals.forEach(d => { const c = d.primaryCategory || 'Other'; catBreakdown[c] = (catBreakdown[c] || 0) + 1; });
+    const priceBuckets = [0,0,0,0,0,0]; // 0-25, 25-50, 50-100, 100-250, 250-500, 500+
+    scanner.currentDeals.forEach(d => {
+      const p = d.salePrice;
+      if (p < 25) priceBuckets[0]++; else if (p < 50) priceBuckets[1]++;
+      else if (p < 100) priceBuckets[2]++; else if (p < 250) priceBuckets[3]++;
+      else if (p < 500) priceBuckets[4]++; else priceBuckets[5]++;
+    });
+    // Notification stats by day (last 7 days)
+    const ntfyByDay = {};
+    const now = Date.now();
+    ntfyLogs.forEach(l => {
+      const d = l.time?.substring(0, 10);
+      if (d && (now - new Date(l.time).getTime()) < 7 * 86400000) {
+        ntfyByDay[d] = (ntfyByDay[d] || { success: 0, error: 0 });
+        ntfyByDay[d][l.status === 'success' ? 'success' : 'error']++;
+      }
+    });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      uptime: process.uptime(),
+      totalScans: scanner.scanCount,
+      totalNotified: scanner.totalNotified,
+      totalDealsNow: scanner.currentDeals.length,
+      seenIdsCount: scanner.seenIds.size,
+      intervalSec: scanner.intervalSec,
+      lastError: scanner.lastError,
+      scanHistory: scanner.scanHistory || [],
+      categoryBreakdown: catBreakdown,
+      priceDistribution: priceBuckets,
+      notificationsByDay: ntfyByDay,
+      connectedClients: sseClients.size
+    }));
+    return;
+  }
+
   // === PROTECTED: Static files (MUST be last route) ===
   // HIGH-03: Path traversal fix using path.resolve
   let filePath = urlPath === '/' ? '/index.html' : urlPath;
   const basename = path.basename(filePath);
-  const blocked = ['auth.json', 'settings.json', 'ntfy-logs.json', 'sessions.json', 'seen-ids.json', 'server.js', 'rpi_update.py', 'rpi_check.py'];
+  const blocked = ['auth.json', 'settings.json', 'ntfy-logs.json', 'sessions.json', 'seen-ids.json', 'favorites.json', 'price-history.json', 'server.js', 'rpi_update.py', 'rpi_check.py'];
   if (blocked.includes(basename)) {
     res.writeHead(403);
     res.end('Forbidden');
@@ -583,8 +677,62 @@ const scanner = {
   intervalSec: 120,
   timer: null,
   isFirstScan: true,
-  totalNotified: 0
+  totalNotified: 0,
+  scanHistory: []         // Ring buffer: last 100 scans {time, dealCount, newCount, duration, notified}
 };
+
+// ===== SSE LIVE UPDATES =====
+const sseClients = new Set();
+function broadcastSSE(eventData) {
+  const msg = `data: ${JSON.stringify(eventData)}\n\n`;
+  for (const client of sseClients) {
+    try { client.write(msg); } catch (e) { sseClients.delete(client); }
+  }
+}
+
+// ===== FAVORITES =====
+function loadFavorites() {
+  try { return JSON.parse(fs.readFileSync(FAVORITES_FILE, 'utf8')); } catch { return []; }
+}
+function saveFavorites(favs) { atomicWriteJSON(FAVORITES_FILE, favs); }
+
+// ===== PRICE HISTORY =====
+let priceHistory = {}; // { offerId: [{t: timestamp, p: price}, ...] }
+let _priceHistoryTimer = null;
+function loadPriceHistory() {
+  try { priceHistory = JSON.parse(fs.readFileSync(PRICE_HISTORY_FILE, 'utf8')); }
+  catch { priceHistory = {}; }
+  console.log(`  📊 Loaded price history for ${Object.keys(priceHistory).length} deals`);
+}
+function persistPriceHistory() {
+  if (_priceHistoryTimer) return;
+  _priceHistoryTimer = setTimeout(() => {
+    // Cap to 2000 deals, 30 points each
+    const keys = Object.keys(priceHistory);
+    if (keys.length > 2000) {
+      keys.slice(0, keys.length - 2000).forEach(k => delete priceHistory[k]);
+    }
+    atomicWriteJSON(PRICE_HISTORY_FILE, priceHistory);
+    _priceHistoryTimer = null;
+  }, 300000); // Every 5 minutes max
+}
+function recordPriceHistory(deals) {
+  const now = Math.floor(Date.now() / 1000);
+  let changed = false;
+  deals.forEach(d => {
+    if (!d.id || d.isSoldOut) return;
+    if (!priceHistory[d.id]) priceHistory[d.id] = [];
+    const hist = priceHistory[d.id];
+    const lastEntry = hist[hist.length - 1];
+    // Only record if price changed or first entry
+    if (!lastEntry || lastEntry.p !== d.salePrice) {
+      hist.push({ t: now, p: d.salePrice });
+      if (hist.length > 30) hist.shift();
+      changed = true;
+    }
+  });
+  if (changed) persistPriceHistory();
+}
 
 // Load seen IDs from disk into memory (called once on boot)
 function scannerInitSeenIds() {
@@ -885,6 +1033,13 @@ async function scannerDoScan() {
 
     console.log(`[${new Date().toLocaleTimeString()}] 🔍 Scan #${scanner.scanCount}: ${allDeals.length} deals (${newDeals.length} new) in ${duration}s`);
 
+    // Record price history for all deals
+    recordPriceHistory(allDeals);
+
+    // Record scan history (ring buffer, last 100)
+    scanner.scanHistory.push({ time: Date.now(), dealCount: allDeals.length, newCount: newDeals.length, duration: parseFloat(duration), notified: 0 });
+    if (scanner.scanHistory.length > 100) scanner.scanHistory.shift();
+
     // === SEND NOTIFICATIONS (skip on first scan to avoid spam) ===
     if (scanner.isFirstScan) {
       scanner.isFirstScan = false;
@@ -932,13 +1087,27 @@ async function scannerDoScan() {
 
       if (notifiedCount > 0) {
         scanner.totalNotified += notifiedCount;
+        // Update scan history with notification count
+        if (scanner.scanHistory.length > 0) scanner.scanHistory[scanner.scanHistory.length - 1].notified = notifiedCount;
         console.log(`  📣 Sent ${notifiedCount} notification(s)`);
       }
     }
 
+    // Broadcast SSE to all connected clients
+    broadcastSSE({
+      type: 'scan-complete',
+      dealCount: allDeals.length,
+      newCount: newDeals.length,
+      lastScan: new Date(scanner.lastScanTime).toISOString(),
+      scanCount: scanner.scanCount,
+      nextScanIn: scanner.intervalSec,
+      totalNotified: scanner.totalNotified
+    });
+
   } catch (err) {
     scanner.lastError = err.message;
     console.error(`[${new Date().toLocaleTimeString()}] ❌ Scan failed: ${err.message}`);
+    broadcastSSE({ type: 'scan-error', error: err.message });
   } finally {
     scanner.isScanning = false;
   }
@@ -979,8 +1148,9 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  Scanner:    ✅ Autonomous (server-side)`);
   console.log(`  ─────────────────────────────────────────────────────\n`);
 
-  // Load seen IDs into memory from disk, then start scanner
+  // Load persistent data into memory, then start scanner
   scannerInitSeenIds();
+  loadPriceHistory();
   scannerStart(true);
 });
 
