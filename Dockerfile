@@ -9,7 +9,7 @@ WORKDIR /app
 # Copy application files
 COPY package.json ./
 COPY server.js app.js style.css sw.js ./
-COPY index.html login.html ntfy-logs.html ./
+COPY index.html login.html ntfy-logs.html stats.html ./
 COPY manifest.json ./
 
 # Create data directory for persistent config
