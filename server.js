@@ -904,10 +904,14 @@ async function scannerDoScan() {
         // Keyword matching logic:
         // - If keywords defined: only notify if deal matches a keyword
         // - If no keywords defined: use ntfyMinDiscount threshold
+        // Searches title, subtitle, URL, and categories for broader matching
+        // (Woot API sometimes truncates product names, e.g. omitting "AMD Radeon")
         const hasDefinedKws = allDefinedKws.length > 0;
-        const titleLow = deal.title.toLowerCase();
-        const subtitleLow = (deal.subtitle || '').toLowerCase();
-        const kwMatch = hasDefinedKws && allDefinedKws.some(kw => titleLow.includes(kw) || subtitleLow.includes(kw));
+        const searchText = [
+          deal.title, deal.subtitle || '',
+          deal.url || '', (deal.categories || []).join(' ')
+        ].join(' ').toLowerCase();
+        const kwMatch = hasDefinedKws && allDefinedKws.some(kw => searchText.includes(kw));
 
         const shouldNotify = kwMatch || (!hasDefinedKws && deal.discount >= (settings.ntfyMinDiscount || 0));
 

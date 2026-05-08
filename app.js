@@ -653,9 +653,8 @@ function checkAlerts(newDeals) {
 
   function matchesKeywords(deal) {
     if (activeKws.length === 0) return true;
-    const titleLow = deal.title.toLowerCase();
-    const subtitleLow = (deal.subtitle || '').toLowerCase();
-    return activeKws.some(kw => titleLow.includes(kw) || subtitleLow.includes(kw));
+    const searchText = [deal.title, deal.subtitle || '', deal.url || '', (deal.categories || []).join(' ')].join(' ').toLowerCase();
+    return activeKws.some(kw => searchText.includes(kw));
   }
 
   newDeals.forEach(deal => {
@@ -764,9 +763,8 @@ function renderDeals() {
     // If none are active → show all keyword-matched deals
     const filterKws = state.activeKeywords.size > 0 ? [...state.activeKeywords] : definedKws;
     filtered = filtered.filter(d => {
-      const titleLow = d.title.toLowerCase();
-      const subtitleLow = (d.subtitle || '').toLowerCase();
-      return filterKws.some(kw => titleLow.includes(kw) || subtitleLow.includes(kw));
+      const searchText = [d.title, d.subtitle || '', d.url || '', (d.categories || []).join(' ')].join(' ').toLowerCase();
+      return filterKws.some(kw => searchText.includes(kw));
     });
   }
 
