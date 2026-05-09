@@ -654,6 +654,14 @@ function clearKeywordFilters() {
   renderDeals();
 }
 
+function selectAllKeywords() {
+  const keywords = state.settings.keywordButtons || [];
+  keywords.forEach(kw => state.activeKeywords.add(kw.toLowerCase()));
+  saveSettings();
+  renderKeywordButtonsMain();
+  renderDeals();
+}
+
 function renderKeywordTagsSettings() {
   const container = document.getElementById('keyword-tags-settings');
   const keywords = state.settings.keywordButtons;
@@ -689,14 +697,20 @@ function renderKeywordButtonsMain() {
       title="Click to filter by '${escHtml(kw)}'">${escHtml(kw)}</button>`;
   }).join('');
 
+  const allActive = keywords.every(kw => state.activeKeywords.has(kw.toLowerCase()));
+  const selectAllBtn = !allActive
+    ? `<button class="keyword-btn-clear keyword-btn-selectall" id="btn-select-all-keywords" title="Select all keywords">✓ All</button>`
+    : '';
   const clearBtn = state.activeKeywords.size > 0
     ? `<button class="keyword-btn-clear" id="btn-clear-keywords" title="Clear all keyword filters">✕ Clear</button>`
     : '';
 
-  container.innerHTML = btns + clearBtn;
+  container.innerHTML = btns + selectAllBtn + clearBtn;
   container.querySelectorAll('.keyword-btn').forEach(btn => {
     btn.addEventListener('click', () => toggleKeywordFilter(btn.dataset.kw));
   });
+  const selectAllEl = document.getElementById('btn-select-all-keywords');
+  if (selectAllEl) selectAllEl.addEventListener('click', selectAllKeywords);
   const clearEl = document.getElementById('btn-clear-keywords');
   if (clearEl) clearEl.addEventListener('click', clearKeywordFilters);
 }

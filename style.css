@@ -208,6 +208,8 @@ input,select{font-family:inherit}
 .keyword-btn.active{background:linear-gradient(135deg,var(--accent),#7c3aed);border-color:var(--accent);color:#fff;box-shadow:0 2px 12px var(--accent-glow)}
 .keyword-btn-clear{padding:7px 14px;border-radius:999px;border:1px dashed var(--border);background:transparent;color:var(--text-muted);font-size:0.75rem;font-weight:500;cursor:pointer;transition:all var(--transition)}
 .keyword-btn-clear:hover{border-color:var(--danger);color:var(--danger)}
+.keyword-btn-selectall{border-color:rgba(99,102,241,0.3);color:var(--accent-light)}
+.keyword-btn-selectall:hover{border-color:var(--accent);color:var(--accent-light);background:rgba(99,102,241,0.08)}
 
 /* === ALERTS === */
 .alerts-section{margin-bottom:20px}
