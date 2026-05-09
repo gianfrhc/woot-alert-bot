@@ -1048,11 +1048,9 @@ function renderDeals() {
   // When using specific filters (hot, new, ending, warehouse, favorites),
   // show ALL matching deals regardless of keywords
   const skipKeywords = ['hot', 'new', 'ending', 'warehouse', 'favorites'].includes(filter);
-  const definedKws = (state.settings.keywordButtons || []).map(k => k.toLowerCase());
-  if (definedKws.length > 0 && !skipKeywords) {
-    // If some keywords are toggled active → show only those
-    // If none are active → show all keyword-matched deals
-    const filterKws = state.activeKeywords.size > 0 ? [...state.activeKeywords] : definedKws;
+  if (state.activeKeywords.size > 0 && !skipKeywords) {
+    // Only filter when user has explicitly toggled keywords active
+    const filterKws = [...state.activeKeywords];
     filtered = filtered.filter(d => {
       const searchText = [d.title, d.subtitle || '', d.url || '', (d.categories || []).join(' ')].join(' ').toLowerCase();
       return filterKws.some(kw => searchText.includes(kw));
