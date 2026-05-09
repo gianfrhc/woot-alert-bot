@@ -60,11 +60,12 @@ async function loadSettings() {
     if (res.ok) {
       const serverSettings = await res.json();
       if (serverSettings && Object.keys(serverSettings).length > 0) {
-        // HIGH-04: Server masks apiKey — preserve local copy if server sends masked version
-        const localApiKey = state.settings.apiKey;
+        // HIGH-04: Server masks apiKey — show masked version so user knows it's saved
         Object.assign(state.settings, serverSettings);
         if (serverSettings.apiKey && serverSettings.apiKey.includes('•')) {
-          state.settings.apiKey = localApiKey || ''; // Keep unmasked local copy
+          state._apiKeyMasked = true; // Track that we're showing a masked key
+        } else {
+          state._apiKeyMasked = false;
         }
         // Restore activeKeywords from saved array
         if (serverSettings.activeKeywords && Array.isArray(serverSettings.activeKeywords)) {
@@ -181,7 +182,10 @@ function applySettingsToUI() {
   document.getElementById('min-price').value = s.minPrice;
   document.getElementById('min-price-value').textContent = '$' + s.minPrice;
   document.getElementById('refresh-interval').value = s.refreshInterval;
-  document.getElementById('api-key').value = s.apiKey;
+  // API Key: show masked version or actual key
+  const apiKeyInput = document.getElementById('api-key');
+  apiKeyInput.value = s.apiKey || '';
+  updateApiKeyStatus(s.apiKey);
   document.getElementById('toggle-sound').classList.toggle('active', s.soundEnabled);
   document.getElementById('toggle-notifications').classList.toggle('active', s.notificationsEnabled);
   document.getElementById('toggle-ntfy').classList.toggle('active', s.ntfyEnabled);
@@ -216,6 +220,31 @@ function applySettingsToUI() {
   renderBlockedWordsSettings();
 }
 
+// ===== API KEY STATUS =====
+function updateApiKeyStatus(apiKey) {
+  const statusEl = document.getElementById('api-key-status');
+  if (!statusEl) return;
+  if (apiKey && apiKey.length > 0) {
+    statusEl.className = 'api-key-status configured';
+    statusEl.innerHTML = '✅ API Key configured';
+  } else {
+    statusEl.className = 'api-key-status missing';
+    statusEl.innerHTML = '⚠️ No API Key — scanner disabled';
+  }
+}
+
+function toggleApiKeyVisibility() {
+  const input = document.getElementById('api-key');
+  const btn = document.getElementById('btn-toggle-api-key');
+  if (input.type === 'password') {
+    input.type = 'text';
+    if (btn) btn.textContent = '🙈';
+  } else {
+    input.type = 'password';
+    if (btn) btn.textContent = '👁';
+  }
+}
+
 // ===== EVENTS =====
 function bindEvents() {
   document.getElementById('btn-refresh').addEventListener('click', () => scanDeals());
@@ -228,6 +257,25 @@ function bindEvents() {
   document.getElementById('btn-export-csv').addEventListener('click', exportDealsCSV);
   const themeBtn = document.getElementById('btn-theme');
   if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
+
+  // API Key: show/hide toggle + clear masked key on edit
+  const apiKeyToggle = document.getElementById('btn-toggle-api-key');
+  if (apiKeyToggle) apiKeyToggle.addEventListener('click', toggleApiKeyVisibility);
+  const apiKeyInput = document.getElementById('api-key');
+  if (apiKeyInput) {
+    apiKeyInput.addEventListener('focus', () => {
+      // When user clicks on the masked key field, clear it so they can type a new one
+      if (state._apiKeyMasked && apiKeyInput.value.includes('•')) {
+        apiKeyInput.value = '';
+        apiKeyInput.type = 'text'; // Show what they're typing
+        const btn = document.getElementById('btn-toggle-api-key');
+        if (btn) btn.textContent = '🙈';
+      }
+    });
+    apiKeyInput.addEventListener('input', () => {
+      updateApiKeyStatus(apiKeyInput.value);
+    });
+  }
 
   // F-06: Escape closes settings
   document.addEventListener('keydown', e => {
@@ -393,7 +441,16 @@ function saveSettingsFromUI() {
   s.minPrice = parseInt(document.getElementById('min-price').value);
   s.maxPrice = parseInt(document.getElementById('max-price').value);
   s.refreshInterval = parseInt(document.getElementById('refresh-interval').value);
-  s.apiKey = document.getElementById('api-key').value.trim();
+  // API Key: only update if user actually changed it (not the masked version)
+  const apiKeyVal = document.getElementById('api-key').value.trim();
+  if (apiKeyVal && !apiKeyVal.includes('•')) {
+    s.apiKey = apiKeyVal; // User entered a new key
+    state._apiKeyMasked = false;
+  } else if (!apiKeyVal) {
+    s.apiKey = ''; // User cleared the key
+    state._apiKeyMasked = false;
+  }
+  // If it contains •, leave s.apiKey as-is (the server will preserve the real key)
   s.soundEnabled = document.getElementById('toggle-sound').classList.contains('active');
   s.notificationsEnabled = document.getElementById('toggle-notifications').classList.contains('active');
   s.ntfyEnabled = document.getElementById('toggle-ntfy').classList.contains('active');

@@ -280,6 +280,15 @@ input,select{font-family:inherit}
 .condition-toggles{display:flex;flex-direction:column;gap:10px}
 .condition-toggle-row{padding:8px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.82rem}
 
+/* === API KEY FIELD === */
+.api-key-row{display:flex;gap:8px;align-items:center}
+.api-key-row .text-input{flex:1}
+.btn-toggle-key{width:36px;height:36px;padding:0;font-size:1rem;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all var(--transition)}
+.btn-toggle-key:hover{border-color:var(--accent);background:rgba(99,102,241,0.08)}
+.api-key-status{font-size:0.75rem;font-weight:600;padding:4px 10px;border-radius:var(--radius-sm);margin-top:2px}
+.api-key-status.configured{color:var(--success);background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2)}
+.api-key-status.missing{color:var(--warning);background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2)}
+
 /* === KEYWORD PLACEHOLDER === */
 .keyword-placeholder{font-size:0.75rem;color:var(--text-muted);font-style:italic;padding:4px 0}
 

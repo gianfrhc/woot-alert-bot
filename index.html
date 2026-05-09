@@ -327,8 +327,12 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
                             Woot API Key
                         </label>
-                        <input type="password" id="api-key" class="text-input" placeholder="Paste your API key here...">
-                        <p class="setting-hint">Get a free key at <a href="https://forums.woot.com/t/request-developer-api-key/734283" target="_blank">Woot Forums</a></p>
+                        <div class="api-key-row">
+                            <input type="password" id="api-key" class="text-input" placeholder="Paste your API key here..." autocomplete="off">
+                            <button type="button" class="btn btn-icon btn-toggle-key" id="btn-toggle-api-key" title="Show/hide API key">👁</button>
+                        </div>
+                        <div class="api-key-status missing" id="api-key-status">⚠️ No API Key — scanner disabled</div>
+                        <p class="setting-hint">Get a free key at <a href="https://forums.woot.com/t/request-developer-api-key/734283" target="_blank">Woot Forums</a>. The key is saved on the server and persists across sessions.</p>
                     </div>
                     </div>
                 </div>
