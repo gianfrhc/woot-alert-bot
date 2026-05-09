@@ -1095,34 +1095,46 @@ function escapeHtml(text) {
 }
 
 // Send Email notification via Gmail SMTP (server-side, zero dependencies)
-async function scannerSendEmail(deal, emailAddress, appPassword, recipient) {
+// Supports single deal or array of deals (digest mode)
+async function scannerSendEmail(dealOrDeals, emailAddress, appPassword, recipient) {
   const tls = require('tls');
   const to = recipient || emailAddress;
+  const deals = Array.isArray(dealOrDeals) ? dealOrDeals : [dealOrDeals];
+  if (deals.length === 0) return false;
 
   return new Promise((resolve) => {
     const timeout = setTimeout(() => { resolve(false); }, 15000);
 
     try {
-      const subject = `Woot Deal: ${deal.title} - $${deal.salePrice.toFixed(2)} (${deal.discount}% OFF)`;
-      const htmlBody = [
-        `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">`,
-        `<h2 style="color:#6366f1;">🔔 Woot Alert Bot</h2>`,
+      const isDigest = deals.length > 1;
+      const subject = isDigest
+        ? `Woot Alert: ${deals.length} new deals found!`
+        : `Woot Deal: ${deals[0].title} - $${deals[0].salePrice.toFixed(2)} (${deals[0].discount}% OFF)`;
+
+      // Build deal cards HTML
+      const dealCards = deals.map(deal => [
         `<div style="background:#f8f9fa;border-radius:12px;padding:20px;margin:16px 0;">`,
-        deal.photo ? `<img src="${deal.photo}" alt="" style="max-width:200px;border-radius:8px;margin-bottom:12px;">` : '',
+        deal.photo ? `<img src="${deal.photo}" alt="" style="max-width:150px;border-radius:8px;margin-bottom:12px;">` : '',
         `<h3 style="margin:0 0 8px;">${deal.title}</h3>`,
-        deal.condition ? `<p style="color:#6b7280;font-size:0.85rem;margin:0 0 12px;">📦 ${deal.condition}</p>` : '',
-        `<div style="font-size:1.4rem;font-weight:bold;color:#10b981;">$${deal.salePrice.toFixed(2)}`,
+        deal.condition ? `<p style="color:#6b7280;font-size:0.85rem;margin:0 0 8px;">📦 ${deal.condition}</p>` : '',
+        `<div style="font-size:1.3rem;font-weight:bold;color:#10b981;">$${deal.salePrice.toFixed(2)}`,
         deal.listPrice > 0 ? ` <span style="text-decoration:line-through;color:#9ca3af;font-size:0.9rem;">$${deal.listPrice.toFixed(2)}</span>` : '',
         `</div>`,
         deal.discount > 0 ? `<p style="color:#ef4444;font-weight:bold;margin:8px 0;">${deal.discount}% OFF — Save $${(deal.listPrice - deal.salePrice).toFixed(2)}</p>` : '',
-        `</div>`,
-        `<a href="${deal.url}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">View Deal →</a>`,
+        `<a href="${deal.url}" style="display:inline-block;background:#6366f1;color:#fff;padding:8px 18px;border-radius:6px;text-decoration:none;font-weight:bold;font-size:0.85rem;margin-top:4px;">View Deal →</a>`,
+        `</div>`
+      ].join('\n')).join('\n');
+
+      const htmlBody = [
+        `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">`,
+        `<h2 style="color:#6366f1;">🔔 Woot Alert Bot</h2>`,
+        isDigest ? `<p style="color:#4b5563;margin-bottom:4px;">📦 <strong>${deals.length} new deals</strong> found in this scan:</p>` : '',
+        dealCards,
         `<p style="color:#9ca3af;font-size:0.75rem;margin-top:20px;">Sent by Woot Alert Bot</p>`,
         `</div>`
       ].join('\n');
 
       // Build email with MIME headers
-      const boundary = 'boundary_' + Date.now();
       const emailMsg = [
         `From: Woot Alert Bot <${emailAddress}>`,
         `To: ${to}`,
@@ -1178,7 +1190,7 @@ async function scannerSendEmail(deal, emailAddress, appPassword, recipient) {
             step = 8;
           } else if (step === 8 && code === 250) {
             socket.write('QUIT\r\n');
-            console.log(`  📧 Email → ${to} (${deal.title.substring(0, 50)}...)`);
+            console.log(`  📧 Email → ${to} (${deals.length} deal${deals.length > 1 ? 's' : ''})`);
             clearTimeout(timeout);
             resolve(true);
           }
@@ -1277,6 +1289,7 @@ async function scannerDoScan() {
       const blockedWords = (settings.blockedWords || []).map(w => w.toLowerCase());
       const isQuiet = scannerIsQuietHours(settings);
       let notifiedCount = 0;
+      const emailDigestDeals = []; // Collect deals for single digest email
 
       for (const deal of newDeals) {
         if (deal.isSoldOut) continue;
@@ -1300,29 +1313,34 @@ async function scannerDoScan() {
 
         if (!shouldNotify) continue;
 
-        // Send ntfy
+        // Send ntfy (individual per deal)
         if (settings.ntfyEnabled && settings.ntfyTopic) {
           await scannerSendNtfy(deal, settings.ntfyTopic, settings);
           notifiedCount++;
         }
 
-        // Send Discord
+        // Send Discord (individual per deal)
         if (settings.discordEnabled && settings.discordWebhook) {
           await scannerSendDiscord(deal, settings.discordWebhook);
           notifiedCount++;
         }
 
-        // Send Telegram
+        // Send Telegram (individual per deal)
         if (settings.telegramEnabled && settings.telegramBotToken && settings.telegramChatId) {
           await scannerSendTelegram(deal, settings.telegramBotToken, settings.telegramChatId);
           notifiedCount++;
         }
 
-        // Send Email
+        // Collect for email digest (sent as single email after loop)
         if (settings.emailEnabled && settings.emailAddress && settings.emailAppPassword) {
-          await scannerSendEmail(deal, settings.emailAddress, settings.emailAppPassword, settings.emailRecipient);
-          notifiedCount++;
+          emailDigestDeals.push(deal);
         }
+      }
+
+      // Send single digest email with all deals from this scan
+      if (emailDigestDeals.length > 0) {
+        await scannerSendEmail(emailDigestDeals, settings.emailAddress, settings.emailAppPassword, settings.emailRecipient);
+        notifiedCount++;
       }
 
       if (notifiedCount > 0) {
