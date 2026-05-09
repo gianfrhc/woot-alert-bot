@@ -1047,7 +1047,7 @@ function renderDeals() {
   // Keyword button filter (OR logic) — only applies on 'all' and 'great' views
   // When using specific filters (hot, new, ending, warehouse, favorites),
   // show ALL matching deals regardless of keywords
-  const skipKeywords = ['hot', 'new', 'ending', 'warehouse', 'favorites'].includes(filter);
+  const skipKeywords = ['hot', 'new', 'ending', 'warehouse', 'favorites', 'electronics', 'computers', 'clearance'].includes(filter);
   if (state.activeKeywords.size > 0 && !skipKeywords) {
     // Only filter when user has explicitly toggled keywords active
     const filterKws = [...state.activeKeywords];
@@ -1057,7 +1057,6 @@ function renderDeals() {
     });
   }
 
-  // Search
   // Search filter (fuzzy multi-token)
   if (search) {
     const tokens = search.split(/\s+/).filter(Boolean);
@@ -1102,6 +1101,34 @@ function renderDeals() {
     });
   } else if (filter === 'favorites') {
     filtered = filtered.filter(d => state.favorites.has(d.id));
+  } else if (filter === 'electronics') {
+    filtered = filtered.filter(d => {
+      const cats = (d.categories || []).join(' ').toLowerCase();
+      const url = (d.url || '').toLowerCase();
+      const mkt = (d.marketingName || '').toLowerCase();
+      return cats.includes('electronics') || url.includes('electronics.woot.com')
+        || mkt.includes('electronics');
+    });
+  } else if (filter === 'computers') {
+    filtered = filtered.filter(d => {
+      const cats = (d.categories || []).join(' ').toLowerCase();
+      const url = (d.url || '').toLowerCase();
+      const title = (d.title || '').toLowerCase();
+      const mkt = (d.marketingName || '').toLowerCase();
+      return cats.includes('computer') || cats.includes('laptop') || cats.includes('desktop')
+        || url.includes('computers.woot.com')
+        || mkt.includes('computer')
+        || title.includes('laptop') || title.includes('desktop') || title.includes('notebook');
+    });
+  } else if (filter === 'clearance') {
+    filtered = filtered.filter(d => {
+      const url = (d.url || '').toLowerCase();
+      const mkt = (d.marketingName || '').toLowerCase();
+      const title = (d.title || '').toLowerCase();
+      return url.includes('sellout.woot.com') || url.includes('clearance')
+        || mkt.includes('clearance') || mkt.includes('sellout')
+        || title.includes('clearance');
+    });
   }
 
   // Sort
