@@ -212,6 +212,24 @@ function applySettingsToUI() {
   document.getElementById('toggle-discord').setAttribute('aria-checked', s.discordEnabled);
   document.getElementById('discord-webhook').value = s.discordWebhook || '';
   document.getElementById('discord-settings-group').style.display = s.discordEnabled ? '' : 'none';
+  // Telegram
+  document.getElementById('toggle-telegram').classList.toggle('active', !!s.telegramEnabled);
+  document.getElementById('toggle-telegram').setAttribute('aria-checked', !!s.telegramEnabled);
+  document.getElementById('telegram-bot-token').value = s.telegramBotToken || '';
+  document.getElementById('telegram-chat-id').value = s.telegramChatId || '';
+  const tgVis = s.telegramEnabled ? '' : 'none';
+  document.getElementById('telegram-settings-group').style.display = tgVis;
+  document.getElementById('telegram-chatid-group').style.display = tgVis;
+  // Email
+  document.getElementById('toggle-email').classList.toggle('active', !!s.emailEnabled);
+  document.getElementById('toggle-email').setAttribute('aria-checked', !!s.emailEnabled);
+  document.getElementById('email-address').value = s.emailAddress || '';
+  document.getElementById('email-app-password').value = s.emailAppPassword || '';
+  document.getElementById('email-recipient').value = s.emailRecipient || '';
+  const emailVis = s.emailEnabled ? '' : 'none';
+  document.getElementById('email-address-group').style.display = emailVis;
+  document.getElementById('email-password-group').style.display = emailVis;
+  document.getElementById('email-recipient-group').style.display = emailVis;
   document.querySelectorAll('.chip').forEach(c => {
     c.classList.toggle('active', s.categories.includes(c.dataset.category));
   });
@@ -297,7 +315,7 @@ function bindEvents() {
     document.getElementById('ntfy-min-discount-value').textContent = e.target.value + '%';
   });
 
-  ['toggle-sound','toggle-notifications','toggle-ntfy','toggle-discord','toggle-allow-openbox','toggle-allow-refurbished'].forEach(id => {
+  ['toggle-sound','toggle-notifications','toggle-ntfy','toggle-discord','toggle-allow-openbox','toggle-allow-refurbished','toggle-telegram','toggle-email'].forEach(id => {
     const el = document.getElementById(id);
     const toggle = () => {
       el.classList.toggle('active');
@@ -313,6 +331,17 @@ function bindEvents() {
       }
       if (id === 'toggle-discord') {
         document.getElementById('discord-settings-group').style.display = el.classList.contains('active') ? '' : 'none';
+      }
+      if (id === 'toggle-telegram') {
+        const vis = el.classList.contains('active') ? '' : 'none';
+        document.getElementById('telegram-settings-group').style.display = vis;
+        document.getElementById('telegram-chatid-group').style.display = vis;
+      }
+      if (id === 'toggle-email') {
+        const vis = el.classList.contains('active') ? '' : 'none';
+        document.getElementById('email-address-group').style.display = vis;
+        document.getElementById('email-password-group').style.display = vis;
+        document.getElementById('email-recipient-group').style.display = vis;
       }
     };
     el.addEventListener('click', toggle);
@@ -358,6 +387,69 @@ function bindEvents() {
   document.getElementById('btn-add-blocked').addEventListener('click', () => addBlockedWordFromInput());
   document.getElementById('blocked-word-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); addBlockedWordFromInput(); }
+  });
+
+  // Show/hide for Telegram token and Email password
+  const tgToggle = document.getElementById('btn-toggle-tg-token');
+  if (tgToggle) tgToggle.addEventListener('click', () => {
+    const inp = document.getElementById('telegram-bot-token');
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+    tgToggle.textContent = inp.type === 'password' ? '👁' : '🙈';
+  });
+  const emailToggle = document.getElementById('btn-toggle-email-pass');
+  if (emailToggle) emailToggle.addEventListener('click', () => {
+    const inp = document.getElementById('email-app-password');
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+    emailToggle.textContent = inp.type === 'password' ? '👁' : '🙈';
+  });
+
+  // Clear masked secrets on focus (same pattern as API key)
+  ['telegram-bot-token', 'email-app-password'].forEach(id => {
+    const inp = document.getElementById(id);
+    if (inp) inp.addEventListener('focus', () => {
+      if (inp.value.includes('•')) {
+        inp.value = '';
+        inp.type = 'text';
+      }
+    });
+  });
+
+  // Test buttons
+  const testTg = document.getElementById('btn-test-telegram');
+  if (testTg) testTg.addEventListener('click', async () => {
+    const token = document.getElementById('telegram-bot-token').value.trim();
+    const chatId = document.getElementById('telegram-chat-id').value.trim();
+    if (!token || !chatId) { showToast('Enter Bot Token and Chat ID first', 'error'); return; }
+    testTg.disabled = true; testTg.textContent = '⏳...';
+    try {
+      const res = await fetch('/api/test-telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botToken: token, chatId })
+      });
+      const data = await res.json();
+      showToast(data.ok ? '✅ Telegram test sent!' : `❌ ${data.error || 'Failed'}`, data.ok ? 'success' : 'error');
+    } catch (e) { showToast('Failed to test Telegram', 'error'); }
+    testTg.disabled = false; testTg.textContent = '🧪 Test';
+  });
+
+  const testEmail = document.getElementById('btn-test-email');
+  if (testEmail) testEmail.addEventListener('click', async () => {
+    const addr = document.getElementById('email-address').value.trim();
+    const pass = document.getElementById('email-app-password').value.trim();
+    const recipient = document.getElementById('email-recipient').value.trim();
+    if (!addr || !pass) { showToast('Enter Gmail address and App Password first', 'error'); return; }
+    testEmail.disabled = true; testEmail.textContent = '⏳...';
+    try {
+      const res = await fetch('/api/test-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailAddress: addr, emailAppPassword: pass, emailRecipient: recipient })
+      });
+      const data = await res.json();
+      showToast(data.ok ? '✅ Test email sent!' : `❌ ${data.error || 'Failed'}`, data.ok ? 'success' : 'error');
+    } catch (e) { showToast('Failed to test email', 'error'); }
+    testEmail.disabled = false; testEmail.textContent = '🧪 Test';
   });
 
   // Clickable stat cards
@@ -462,10 +554,37 @@ function saveSettingsFromUI() {
   s.ntfyAllowRefurbished = document.getElementById('toggle-allow-refurbished').classList.contains('active');
   s.discordEnabled = document.getElementById('toggle-discord').classList.contains('active');
   s.discordWebhook = document.getElementById('discord-webhook').value.trim();
+  // Telegram
+  s.telegramEnabled = document.getElementById('toggle-telegram').classList.contains('active');
+  const tgTokenVal = document.getElementById('telegram-bot-token').value.trim();
+  if (tgTokenVal && !tgTokenVal.includes('•')) s.telegramBotToken = tgTokenVal;
+  else if (!tgTokenVal) s.telegramBotToken = '';
+  s.telegramChatId = document.getElementById('telegram-chat-id').value.trim();
+  // Email
+  s.emailEnabled = document.getElementById('toggle-email').classList.contains('active');
+  s.emailAddress = document.getElementById('email-address').value.trim();
+  const emailPassVal = document.getElementById('email-app-password').value.trim();
+  if (emailPassVal && !emailPassVal.includes('•')) s.emailAppPassword = emailPassVal;
+  else if (!emailPassVal) s.emailAppPassword = '';
+  s.emailRecipient = document.getElementById('email-recipient').value.trim();
   // F-11: Validate ntfy topic
   if (s.ntfyEnabled) {
     if (!s.ntfyTopic) { showToast('Please enter a ntfy.sh topic name', 'error'); return; }
     if (!/^[a-zA-Z0-9_-]+$/.test(s.ntfyTopic)) { showToast('ntfy topic: only letters, numbers, - and _ allowed', 'error'); return; }
+  }
+  // Validate Telegram
+  if (s.telegramEnabled) {
+    if (!s.telegramBotToken && !document.getElementById('telegram-bot-token').value.includes('•')) {
+      showToast('Please enter a Telegram Bot Token', 'error'); return;
+    }
+    if (!s.telegramChatId) { showToast('Please enter a Telegram Chat ID', 'error'); return; }
+  }
+  // Validate Email
+  if (s.emailEnabled) {
+    if (!s.emailAddress) { showToast('Please enter a Gmail address', 'error'); return; }
+    if (!s.emailAppPassword && !document.getElementById('email-app-password').value.includes('•')) {
+      showToast('Please enter a Gmail App Password', 'error'); return;
+    }
   }
   s.categories = [...document.querySelectorAll('.chip.active')].map(c => c.dataset.category);
   if (!s.categories.length) s.categories = ['All'];

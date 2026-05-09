@@ -305,6 +305,92 @@
                             <button class="btn btn-secondary" id="btn-test-discord" style="padding:6px 12px;font-size:0.75rem;white-space:nowrap">🧪 Test</button>
                         </div>
                     </div>
+
+                    <hr class="setting-divider">
+
+                    <!-- Telegram -->
+                    <div class="setting-group">
+                        <label class="setting-label toggle-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.198 2.433a2.242 2.242 0 0 0-1.022.215l-16.5 7.5a2.25 2.25 0 0 0 .126 4.169l4.2 1.4 2.1 6.3a.75.75 0 0 0 1.272.288l2.7-2.7 4.2 3.15a2.25 2.25 0 0 0 3.474-1.275l3-15a2.25 2.25 0 0 0-3.55-2.047z"/></svg>
+                            Telegram Bot
+                            <div class="toggle" id="toggle-telegram" role="switch" aria-checked="false" tabindex="0" aria-label="Telegram Bot Notifications">
+                                <div class="toggle-track">
+                                    <div class="toggle-thumb"></div>
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="setting-group" id="telegram-settings-group" style="display:none">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                            Bot Token
+                        </label>
+                        <div class="api-key-row">
+                            <input type="password" id="telegram-bot-token" class="text-input" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v..." autocomplete="off">
+                            <button type="button" class="btn btn-icon btn-toggle-key" id="btn-toggle-tg-token" title="Show/hide token">👁</button>
+                        </div>
+                        <p class="setting-hint">Message <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram → /newbot → copy the token.</p>
+                    </div>
+
+                    <div class="setting-group" id="telegram-chatid-group" style="display:none">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                            Chat ID / Group ID
+                        </label>
+                        <input type="text" id="telegram-chat-id" class="text-input" placeholder="-1001234567890 or 123456789">
+                        <div style="display:flex;gap:8px;align-items:center">
+                            <p class="setting-hint" style="flex:1">Add the bot to your group, then use <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> or the API to get the chat ID. Groups start with <code>-100</code>.</p>
+                            <button class="btn btn-secondary" id="btn-test-telegram" style="padding:6px 12px;font-size:0.75rem;white-space:nowrap">🧪 Test</button>
+                        </div>
+                    </div>
+
+                    <hr class="setting-divider">
+
+                    <!-- Email -->
+                    <div class="setting-group">
+                        <label class="setting-label toggle-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                            Email (Gmail)
+                            <div class="toggle" id="toggle-email" role="switch" aria-checked="false" tabindex="0" aria-label="Email Notifications">
+                                <div class="toggle-track">
+                                    <div class="toggle-thumb"></div>
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="setting-group" id="email-address-group" style="display:none">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></svg>
+                            Gmail Address
+                        </label>
+                        <input type="email" id="email-address" class="text-input" placeholder="yourname@gmail.com">
+                    </div>
+
+                    <div class="setting-group" id="email-password-group" style="display:none">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                            App Password
+                        </label>
+                        <div class="api-key-row">
+                            <input type="password" id="email-app-password" class="text-input" placeholder="xxxx xxxx xxxx xxxx" autocomplete="off">
+                            <button type="button" class="btn btn-icon btn-toggle-key" id="btn-toggle-email-pass" title="Show/hide password">👁</button>
+                        </div>
+                        <p class="setting-hint">Go to <a href="https://myaccount.google.com/apppasswords" target="_blank">Google App Passwords</a> → Generate a 16-char app password. Requires 2FA enabled.</p>
+                    </div>
+
+                    <div class="setting-group" id="email-recipient-group" style="display:none">
+                        <label class="setting-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                            Send To (optional)
+                        </label>
+                        <input type="email" id="email-recipient" class="text-input" placeholder="Leave empty to send to yourself">
+                        <div style="display:flex;gap:8px;align-items:center">
+                            <p class="setting-hint" style="flex:1">If empty, notifications are sent to the Gmail address above.</p>
+                            <button class="btn btn-secondary" id="btn-test-email" style="padding:6px 12px;font-size:0.75rem;white-space:nowrap">🧪 Test</button>
+                        </div>
+                    </div>
                     </div>
 
                     <!-- Tab: Advanced -->

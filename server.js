@@ -220,9 +220,12 @@ const SETTINGS_SCHEMA = {
   activeKeywords: 'array',
   soundEnabled: 'boolean', notificationsEnabled: 'boolean',
   ntfyEnabled: 'boolean', discordEnabled: 'boolean',
+  telegramEnabled: 'boolean', emailEnabled: 'boolean',
   ntfyAllowOpenBox: 'boolean', ntfyAllowRefurbished: 'boolean',
   ntfyTopic: 'string', quietStart: 'string', quietEnd: 'string',
-  discordWebhook: 'string', apiKey: 'string'
+  discordWebhook: 'string', apiKey: 'string',
+  telegramBotToken: 'string', telegramChatId: 'string',
+  emailAddress: 'string', emailAppPassword: 'string', emailRecipient: 'string'
 };
 
 function validateSettings(data) {
@@ -391,7 +394,10 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && urlPath === '/api/settings') {
     const settings = loadSettings() || {};
     const safe = { ...settings };
+    // Mask all secrets in GET response
     if (safe.apiKey) safe.apiKey = safe.apiKey.substring(0, 8) + '••••••••';
+    if (safe.telegramBotToken) safe.telegramBotToken = safe.telegramBotToken.substring(0, 8) + '••••••••';
+    if (safe.emailAppPassword) safe.emailAppPassword = '••••••••••••••••';
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(safe));
     return;
@@ -408,10 +414,16 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: validationError }));
         return;
       }
-      // HIGH-04: If frontend sends masked API key, preserve the real one from disk
+      // HIGH-04: If frontend sends masked secrets, preserve the real ones from disk
+      const currentSettings = loadSettings() || {};
       if (data.apiKey && data.apiKey.includes('•')) {
-        const currentSettings = loadSettings() || {};
         data.apiKey = currentSettings.apiKey || '';
+      }
+      if (data.telegramBotToken && data.telegramBotToken.includes('•')) {
+        data.telegramBotToken = currentSettings.telegramBotToken || '';
+      }
+      if (data.emailAppPassword && data.emailAppPassword.includes('•')) {
+        data.emailAppPassword = currentSettings.emailAppPassword || '';
       }
       saveSettingsFile(data);
       // Restart scanner with new settings (interval, keywords, categories may have changed)
@@ -422,6 +434,75 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message || 'Invalid JSON' }));
+    }
+    return;
+  }
+
+  // === PROTECTED: Test Telegram ===
+  if (req.method === 'POST' && urlPath === '/api/test-telegram') {
+    try {
+      const body = await readBody(req);
+      const { botToken, chatId } = JSON.parse(body);
+      // If token is masked, use the saved one
+      let token = botToken;
+      if (token && token.includes('•')) {
+        const saved = loadSettings() || {};
+        token = saved.telegramBotToken || '';
+      }
+      if (!token || !chatId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Bot Token and Chat ID required' }));
+        return;
+      }
+      const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: '🔔 <b>Woot Alert Bot</b>\n\n✅ Test notification received successfully!\n\nTelegram notifications are working.',
+          parse_mode: 'HTML'
+        })
+      });
+      const result = await tgRes.json();
+      res.writeHead(result.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result.ok ? { ok: true } : { error: result.description || 'Telegram API error' }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || 'Test failed' }));
+    }
+    return;
+  }
+
+  // === PROTECTED: Test Email ===
+  if (req.method === 'POST' && urlPath === '/api/test-email') {
+    try {
+      const body = await readBody(req);
+      let { emailAddress, emailAppPassword, emailRecipient } = JSON.parse(body);
+      // If password is masked, use the saved one
+      if (emailAppPassword && emailAppPassword.includes('•')) {
+        const saved = loadSettings() || {};
+        emailAppPassword = saved.emailAppPassword || '';
+      }
+      if (!emailAddress || !emailAppPassword) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Gmail address and App Password required' }));
+        return;
+      }
+      const testDeal = {
+        title: 'Test Notification',
+        salePrice: 29.99,
+        listPrice: 99.99,
+        discount: 70,
+        condition: 'New',
+        url: 'https://www.woot.com',
+        photo: ''
+      };
+      const ok = await scannerSendEmail(testDeal, emailAddress, emailAppPassword, emailRecipient);
+      res.writeHead(ok ? 200 : 500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(ok ? { ok: true } : { error: 'SMTP connection failed. Check App Password and 2FA.' }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || 'Test failed' }));
     }
     return;
   }
@@ -971,6 +1052,153 @@ async function scannerSendDiscord(deal, webhookUrl) {
   }
 }
 
+// Send Telegram notification (server-side)
+async function scannerSendTelegram(deal, botToken, chatId) {
+  try {
+    const emoji = deal.discount >= 60 ? '🔥🔥' : deal.discount >= 40 ? '🔥' : '💰';
+    const text = [
+      `${emoji} <b>${escapeHtml(deal.title)}</b>`,
+      ``,
+      `💵 <b>$${deal.salePrice.toFixed(2)}</b>${deal.listPrice > 0 ? ` <s>$${deal.listPrice.toFixed(2)}</s>` : ''}`,
+      deal.discount > 0 ? `📉 <b>${deal.discount}% OFF</b> — Save $${(deal.listPrice - deal.salePrice).toFixed(2)}` : '',
+      deal.condition ? `📦 ${deal.condition}` : '',
+      ``,
+      `🔗 <a href="${deal.url}">Ver en Woot</a>`
+    ].filter(Boolean).join('\n');
+
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: false
+      })
+    });
+
+    const result = await res.json();
+    if (result.ok) {
+      console.log(`  ✈️ Telegram → ${deal.title.substring(0, 50)}...`);
+    } else {
+      console.warn(`  ⚠️ Telegram error: ${result.description || 'Unknown'}`);
+    }
+    return result.ok;
+  } catch (err) {
+    console.warn(`  ❌ Telegram failed: ${err.message}`);
+    return false;
+  }
+}
+
+function escapeHtml(text) {
+  return (text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Send Email notification via Gmail SMTP (server-side, zero dependencies)
+async function scannerSendEmail(deal, emailAddress, appPassword, recipient) {
+  const tls = require('tls');
+  const to = recipient || emailAddress;
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => { resolve(false); }, 15000);
+
+    try {
+      const subject = `Woot Deal: ${deal.title} - $${deal.salePrice.toFixed(2)} (${deal.discount}% OFF)`;
+      const htmlBody = [
+        `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">`,
+        `<h2 style="color:#6366f1;">🔔 Woot Alert Bot</h2>`,
+        `<div style="background:#f8f9fa;border-radius:12px;padding:20px;margin:16px 0;">`,
+        deal.photo ? `<img src="${deal.photo}" alt="" style="max-width:200px;border-radius:8px;margin-bottom:12px;">` : '',
+        `<h3 style="margin:0 0 8px;">${deal.title}</h3>`,
+        deal.condition ? `<p style="color:#6b7280;font-size:0.85rem;margin:0 0 12px;">📦 ${deal.condition}</p>` : '',
+        `<div style="font-size:1.4rem;font-weight:bold;color:#10b981;">$${deal.salePrice.toFixed(2)}`,
+        deal.listPrice > 0 ? ` <span style="text-decoration:line-through;color:#9ca3af;font-size:0.9rem;">$${deal.listPrice.toFixed(2)}</span>` : '',
+        `</div>`,
+        deal.discount > 0 ? `<p style="color:#ef4444;font-weight:bold;margin:8px 0;">${deal.discount}% OFF — Save $${(deal.listPrice - deal.salePrice).toFixed(2)}</p>` : '',
+        `</div>`,
+        `<a href="${deal.url}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">View Deal →</a>`,
+        `<p style="color:#9ca3af;font-size:0.75rem;margin-top:20px;">Sent by Woot Alert Bot</p>`,
+        `</div>`
+      ].join('\n');
+
+      // Build email with MIME headers
+      const boundary = 'boundary_' + Date.now();
+      const emailMsg = [
+        `From: Woot Alert Bot <${emailAddress}>`,
+        `To: ${to}`,
+        `Subject: ${subject}`,
+        `MIME-Version: 1.0`,
+        `Content-Type: text/html; charset=UTF-8`,
+        ``,
+        htmlBody
+      ].join('\r\n');
+
+      // Connect to Gmail SMTP over TLS (port 465)
+      const socket = tls.connect(465, 'smtp.gmail.com', { servername: 'smtp.gmail.com' });
+      let step = 0;
+      let buffer = '';
+
+      socket.on('data', (data) => {
+        buffer += data.toString();
+        // Process complete lines
+        while (buffer.includes('\r\n')) {
+          const line = buffer.substring(0, buffer.indexOf('\r\n'));
+          buffer = buffer.substring(buffer.indexOf('\r\n') + 2);
+          const code = parseInt(line.substring(0, 3));
+
+          if (step === 0 && code === 220) {
+            socket.write('EHLO woot-alert-bot\r\n');
+            step = 1;
+          } else if (step === 1 && code === 250) {
+            // Wait for all 250 lines (multi-line response)
+            if (line[3] === ' ') {
+              socket.write('AUTH LOGIN\r\n');
+              step = 2;
+            }
+          } else if (step === 2 && code === 334) {
+            socket.write(Buffer.from(emailAddress).toString('base64') + '\r\n');
+            step = 3;
+          } else if (step === 3 && code === 334) {
+            socket.write(Buffer.from(appPassword).toString('base64') + '\r\n');
+            step = 4;
+          } else if (step === 4 && code === 235) {
+            socket.write(`MAIL FROM:<${emailAddress}>\r\n`);
+            step = 5;
+          } else if (step === 4 && code !== 235) {
+            console.warn(`  ⚠️ Email auth failed: ${line}`);
+            socket.end(); clearTimeout(timeout); resolve(false);
+          } else if (step === 5 && code === 250) {
+            socket.write(`RCPT TO:<${to}>\r\n`);
+            step = 6;
+          } else if (step === 6 && code === 250) {
+            socket.write('DATA\r\n');
+            step = 7;
+          } else if (step === 7 && code === 354) {
+            socket.write(emailMsg + '\r\n.\r\n');
+            step = 8;
+          } else if (step === 8 && code === 250) {
+            socket.write('QUIT\r\n');
+            console.log(`  📧 Email → ${to} (${deal.title.substring(0, 50)}...)`);
+            clearTimeout(timeout);
+            resolve(true);
+          }
+        }
+      });
+
+      socket.on('error', (err) => {
+        console.warn(`  ❌ Email failed: ${err.message}`);
+        clearTimeout(timeout); resolve(false);
+      });
+
+      socket.on('close', () => { clearTimeout(timeout); });
+
+    } catch (err) {
+      console.warn(`  ❌ Email failed: ${err.message}`);
+      clearTimeout(timeout); resolve(false);
+    }
+  });
+}
+
 // ===== MAIN SCANNER FUNCTION =====
 // MED-03: try/finally ensures isScanning is always reset
 async function scannerDoScan() {
@@ -1081,6 +1309,18 @@ async function scannerDoScan() {
         // Send Discord
         if (settings.discordEnabled && settings.discordWebhook) {
           await scannerSendDiscord(deal, settings.discordWebhook);
+          notifiedCount++;
+        }
+
+        // Send Telegram
+        if (settings.telegramEnabled && settings.telegramBotToken && settings.telegramChatId) {
+          await scannerSendTelegram(deal, settings.telegramBotToken, settings.telegramChatId);
+          notifiedCount++;
+        }
+
+        // Send Email
+        if (settings.emailEnabled && settings.emailAddress && settings.emailAppPassword) {
+          await scannerSendEmail(deal, settings.emailAddress, settings.emailAppPassword, settings.emailRecipient);
           notifiedCount++;
         }
       }
