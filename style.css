@@ -56,6 +56,8 @@ input,select{font-family:inherit}
 .status-dot{width:8px;height:8px;border-radius:50%;background:var(--warning);animation:blink 1.5s ease-in-out infinite}
 .status-indicator.active .status-dot{background:var(--success);animation:none;box-shadow:0 0 8px rgba(16,185,129,0.5)}
 .status-indicator.error .status-dot{background:var(--danger);animation:none}
+.status-indicator.ratelimited .status-dot{background:var(--warning);animation:blink 0.8s ease-in-out infinite}
+.status-indicator.ratelimited{border-color:rgba(245,158,11,0.3)}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
 
 /* === BUTTONS === */

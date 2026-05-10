@@ -826,7 +826,22 @@ async function scanDeals() {
     const deals = data.deals || [];
 
     if (deals.length === 0) {
-      showToast('No deals found — check API key in Settings', 'info');
+      // Check if rate limited before showing generic message
+      try {
+        const statusRes = await fetch('/api/scan-status');
+        if (statusRes.ok) {
+          const status = await statusRes.json();
+          if (status.rateLimited) {
+            showToast(`⚠️ Rate limited by Woot API — backing off ${Math.round(status.backoffSec / 60)}min`, 'error');
+          } else {
+            showToast('No deals found — check API key in Settings', 'info');
+          }
+        } else {
+          showToast('No deals found — check API key in Settings', 'info');
+        }
+      } catch(e) {
+        showToast('No deals found — check API key in Settings', 'info');
+      }
     }
 
     // Track new deals for UI alerts (sound, desktop notifications)
@@ -909,15 +924,22 @@ function connectSSE() {
           state.serverInterval = data.nextScanIn || state.serverInterval;
           state.countdown = data.nextScanIn || state.serverInterval;
           state.scannerActive = true;
-          // Auto-refresh deals if there are new ones
-          if (data.newCount > 0 || state.deals.length === 0) {
-            fetchDealsQuiet();
+          // Handle rate limiting
+          if (data.rateLimited) {
+            updateStatus('ratelimited');
+            showToast(`⚠️ Woot API rate limited — retrying in ${Math.round(data.backoffSec / 60)}min`, 'error');
+            console.warn(`[SSE] Rate limited. Backoff: ${data.backoffSec}s`);
+          } else {
+            // Auto-refresh deals if there are new ones
+            if (data.newCount > 0 || state.deals.length === 0) {
+              fetchDealsQuiet();
+            }
+            updateStatus('active');
           }
           // Update last scan time display
           if (data.lastScan) {
             document.getElementById('stat-last-scan').textContent = new Date(data.lastScan).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
           }
-          updateStatus('active');
         } else if (data.type === 'scan-error') {
           console.warn('[SSE] Scan error:', data.error);
         }
@@ -1306,11 +1328,13 @@ function updateStats() {
 function updateStatus(s) {
   const el = document.getElementById('status-indicator');
   const txt = document.getElementById('status-text');
-  el.className = 'status-indicator' + (s === 'active' ? ' active' : s === 'error' ? ' error' : '');
+  el.className = 'status-indicator' + (s === 'active' ? ' active' : s === 'error' ? ' error' : s === 'ratelimited' ? ' ratelimited' : '');
   if (s === 'active') {
     txt.textContent = state.scannerActive ? '🔴 Live' : 'Connecting...';
   } else if (s === 'scanning') {
     txt.textContent = 'Scanning...';
+  } else if (s === 'ratelimited') {
+    txt.textContent = '⚠️ Rate Limited';
   } else if (s === 'error') {
     txt.textContent = 'Error';
   } else {

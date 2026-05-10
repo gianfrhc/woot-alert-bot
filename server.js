@@ -244,7 +244,7 @@ function validateSettings(data) {
   // Range validation
   if (data.minDiscount != null && (data.minDiscount < 0 || data.minDiscount > 100)) return 'minDiscount must be 0-100';
   if (data.maxPrice != null && data.maxPrice < 0) return 'maxPrice cannot be negative';
-  if (data.refreshInterval != null && data.refreshInterval < 60) return 'refreshInterval minimum is 60s';
+  if (data.refreshInterval != null && data.refreshInterval < 90) return 'refreshInterval minimum is 90s';
   if (data.ntfyMinDiscount != null && (data.ntfyMinDiscount < 0 || data.ntfyMinDiscount > 100)) return 'ntfyMinDiscount must be 0-100';
   return null; // valid
 }
@@ -607,7 +607,10 @@ const server = http.createServer(async (req, res) => {
       dealsCount: scanner.currentDeals.length,
       intervalSec: scanner.intervalSec,
       totalNotified: scanner.totalNotified,
-      nextScanIn: scanner.intervalSec - Math.floor((Date.now() - (scanner.lastScanTime || 0)) / 1000)
+      nextScanIn: scanner.intervalSec - Math.floor((Date.now() - (scanner.lastScanTime || 0)) / 1000),
+      rateLimited: scanner.consecutive429 > 0,
+      backoffSec: scanner.backoffSec,
+      consecutive429: scanner.consecutive429
     }));
     return;
   }
@@ -759,7 +762,11 @@ const scanner = {
   timer: null,
   isFirstScan: true,
   totalNotified: 0,
-  scanHistory: []         // Ring buffer: last 100 scans {time, dealCount, newCount, duration, notified}
+  scanHistory: [],        // Ring buffer: last 100 scans {time, dealCount, newCount, duration, notified}
+  // Rate limit backoff state
+  consecutive429: 0,      // Count of consecutive scans where ALL feeds returned 429
+  backoffSec: 0,          // Current backoff override (0 = use normal interval)
+  lastRateLimitTime: 0    // Timestamp of last 429 error
 };
 
 // ===== SSE LIVE UPDATES =====
@@ -850,6 +857,7 @@ function scannerPersistSeenIdsNow() {
 }
 
 // MED-02: HTTP fetch with 15s timeout (prevents scanner hang)
+// Enhanced with 429 rate limit detection
 async function fetchJSON(url, headers = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -858,6 +866,13 @@ async function fetchJSON(url, headers = {}) {
     clearTimeout(timeout);
     if (!res.ok) {
       if (res.status === 403) throw new Error('Invalid API Key (403 Forbidden)');
+      if (res.status === 429) {
+        const retryAfter = parseInt(res.headers.get('retry-after') || '0', 10);
+        const err = new Error(`HTTP 429`);
+        err.isRateLimit = true;
+        err.retryAfter = retryAfter;
+        throw err;
+      }
       throw new Error(`HTTP ${res.status}`);
     }
     const text = await res.text();
@@ -874,6 +889,9 @@ async function fetchJSON(url, headers = {}) {
     throw err;
   }
 }
+
+// Helper: delay between sequential API calls
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function normalizeAPIItem(item, marketingName) {
   const sp = item.SalePrice || {};
@@ -1231,31 +1249,78 @@ async function scannerDoScan() {
     const selectedCats = settings.categories || ['All'];
     const feedsToFetch = selectedCats.includes('All') ? ['All'] : selectedCats;
 
-    // Fetch all feeds in parallel
-    const promises = feedsToFetch.map(async (cat) => {
+    // Fetch feeds SEQUENTIALLY with delay to avoid burst rate limits
+    let allDeals = [];
+    let rateLimitCount = 0;
+    let totalFeeds = feedsToFetch.length;
+
+    for (let i = 0; i < feedsToFetch.length; i++) {
+      const cat = feedsToFetch[i];
       try {
         const data = await fetchJSON(`${WOOT_API_BASE}/feed/${cat}`, {
           'Accept': 'application/json',
           'x-api-key': apiKey
         });
         if (data.Items && Array.isArray(data.Items)) {
-          return data.Items.map(item => normalizeAPIItem(item, data.MarketingName || cat));
+          allDeals.push(...data.Items.map(item => normalizeAPIItem(item, data.MarketingName || cat)));
         }
       } catch (e) {
-        console.warn(`  [Scanner] Feed ${cat} failed: ${e.message}`);
+        if (e.isRateLimit) {
+          rateLimitCount++;
+          console.warn(`  [Scanner] Feed ${cat} failed: HTTP 429 (rate limited)`);
+        } else {
+          console.warn(`  [Scanner] Feed ${cat} failed: ${e.message}`);
+        }
       }
-      return [];
-    });
+      // Wait 1.5s between feed requests to avoid burst limits
+      if (i < feedsToFetch.length - 1) await delay(1500);
+    }
 
-    const results = await Promise.allSettled(promises);
-    let allDeals = [];
-    results.forEach(r => {
-      if (r.status === 'fulfilled' && r.value) allDeals.push(...r.value);
-    });
+    // Handle rate limiting with exponential backoff
+    if (rateLimitCount === totalFeeds && totalFeeds > 0) {
+      // ALL feeds returned 429 — apply backoff
+      scanner.consecutive429++;
+      scanner.lastRateLimitTime = Date.now();
+      // Exponential backoff: 2min, 4min, 8min, max 15min
+      const backoffSec = Math.min(15 * 60, Math.pow(2, scanner.consecutive429) * 60);
+      scanner.backoffSec = backoffSec;
+      scanner.lastError = `Rate limited (429) — backing off ${Math.round(backoffSec / 60)}min (attempt ${scanner.consecutive429})`;
+      console.warn(`  ⚠️  Rate limited! Backoff: ${Math.round(backoffSec / 60)}min (consecutive: ${scanner.consecutive429})`);
 
-    const allFailed = results.every(r => r.status === 'rejected');
-    if (allFailed && results.length > 0) {
-      throw results[0].reason || new Error('All feeds failed');
+      // Reschedule with backoff interval
+      scannerApplyBackoff(backoffSec);
+
+      // Still update scan count and broadcast
+      scanner.scanCount++;
+      scanner.lastScanTime = Date.now();
+      const duration = ((Date.now() - scanStart) / 1000).toFixed(1);
+      console.log(`[${new Date().toLocaleTimeString()}] 🔍 Scan #${scanner.scanCount}: 0 deals (0 new) in ${duration}s`);
+      scanner.scanHistory.push({ time: Date.now(), dealCount: 0, newCount: 0, duration: parseFloat(duration), notified: 0, rateLimited: true });
+      if (scanner.scanHistory.length > 100) scanner.scanHistory.shift();
+
+      broadcastSSE({
+        type: 'scan-complete',
+        dealCount: scanner.currentDeals.length, // Keep showing cached deals
+        newCount: 0,
+        lastScan: new Date(scanner.lastScanTime).toISOString(),
+        scanCount: scanner.scanCount,
+        nextScanIn: backoffSec,
+        totalNotified: scanner.totalNotified,
+        rateLimited: true,
+        backoffSec
+      });
+      return; // Exit scan early — don't clear currentDeals
+    } else if (rateLimitCount > 0 && rateLimitCount < totalFeeds) {
+      // Partial rate limit — some feeds worked
+      console.warn(`  ⚠️  Partial rate limit: ${rateLimitCount}/${totalFeeds} feeds blocked`);
+      // Keep the partial data, slow down a bit
+      if (scanner.consecutive429 === 0) scanner.consecutive429 = 1;
+    } else if (rateLimitCount === 0 && scanner.consecutive429 > 0) {
+      // Rate limit cleared! Restore normal interval
+      console.log(`  ✅ Rate limit cleared! Restoring normal interval.`);
+      scanner.consecutive429 = 0;
+      scanner.backoffSec = 0;
+      scannerRestoreNormalInterval();
     }
 
     allDeals = dedupeDeals(allDeals);
@@ -1371,12 +1436,45 @@ async function scannerDoScan() {
   }
 }
 
+// Apply backoff interval (called when rate limited)
+function scannerApplyBackoff(backoffSec) {
+  if (scanner.timer) clearInterval(scanner.timer);
+  console.log(`  ⏱️  Backoff: next scan in ${Math.round(backoffSec / 60)}min`);
+  // Use setTimeout for backoff (single shot), then resume normal interval
+  scanner.timer = setTimeout(() => {
+    scannerDoScan().catch(e => console.error('[Scanner] Backoff scan error:', e));
+    // After backoff scan, if still rate limited, scannerDoScan will call backoff again
+    // If successful, scannerRestoreNormalInterval will be called
+    const settings = loadSettings() || {};
+    const normalInterval = Math.max(90, settings.refreshInterval || 120);
+    scanner.intervalSec = normalInterval;
+    scanner.timer = setInterval(() => {
+      scannerDoScan().catch(e => console.error('[Scanner] Scan error:', e));
+    }, normalInterval * 1000);
+  }, backoffSec * 1000);
+}
+
+// Restore normal scanning interval (called when rate limit clears)
+function scannerRestoreNormalInterval() {
+  if (scanner.timer) { clearInterval(scanner.timer); clearTimeout(scanner.timer); }
+  const settings = loadSettings() || {};
+  scanner.intervalSec = Math.max(90, settings.refreshInterval || 120);
+  console.log(`  ⏱️  Restored normal interval: every ${scanner.intervalSec}s`);
+  scanner.timer = setInterval(() => {
+    scannerDoScan().catch(e => console.error('[Scanner] Scan error:', e));
+  }, scanner.intervalSec * 1000);
+}
+
 // Start/restart the scanner interval
 function scannerStart(coldStart = false) {
-  if (scanner.timer) clearInterval(scanner.timer);
+  if (scanner.timer) { clearInterval(scanner.timer); clearTimeout(scanner.timer); }
 
   const settings = loadSettings() || {};
-  scanner.intervalSec = Math.max(60, settings.refreshInterval || 120);
+  // Minimum 90s to be respectful to the API (was 60s, caused rate limiting)
+  scanner.intervalSec = Math.max(90, settings.refreshInterval || 120);
+  // Reset backoff state on manual restart
+  scanner.consecutive429 = 0;
+  scanner.backoffSec = 0;
 
   console.log(`  ⏱️  Scanner interval: every ${scanner.intervalSec}s`);
 
