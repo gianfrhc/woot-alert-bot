@@ -39,7 +39,8 @@ const state = {
   _bellTimeout: null,
   favorites: new Set(),
   scannerActive: false,
-  serverInterval: 120
+  serverInterval: 120,
+  activeCategories: new Set()  // Dynamic category filter (OR logic)
 };
 
 // ===== INIT =====
@@ -799,6 +800,124 @@ function isAllowedCondition(deal) {
   return true;
 }
 
+// ===== DYNAMIC CATEGORY FILTER =====
+const CATEGORY_META = {
+  'electronics': { emoji: '🔌', label: 'Electronics', color: 'electronics' },
+  'computers':   { emoji: '💻', label: 'Computers',   color: 'computers' },
+  'home':        { emoji: '🏠', label: 'Home',        color: 'home' },
+  'tools':       { emoji: '🔧', label: 'Tools',       color: 'tools' },
+  'sport':       { emoji: '⚽', label: 'Sport',       color: 'sport' },
+  'clearance':   { emoji: '🏷️', label: 'Clearance',   color: 'clearance' },
+  'shirts':      { emoji: '👕', label: 'Shirts',      color: 'shirts' },
+  'gourmet':     { emoji: '🍽️', label: 'Gourmet',     color: 'gourmet' },
+  'wine':        { emoji: '🍷', label: 'Wine',        color: 'wine' },
+  'industrial':  { emoji: '🏭', label: 'Industrial',  color: 'other' },
+  'wootoff':     { emoji: '⚡', label: 'Woot-Off',    color: 'other' },
+  'featured':    { emoji: '⭐', label: 'Featured',    color: 'other' },
+};
+
+// Normalize a deal's category to a key
+function getDealCategoryKey(deal) {
+  const mkt = (deal.marketingName || '').toLowerCase();
+  const url = (deal.url || '').toLowerCase();
+  const cat = (deal.primaryCategory || '').toLowerCase();
+
+  // Match by URL subdomain first (most reliable)
+  if (url.includes('electronics.woot.com')) return 'electronics';
+  if (url.includes('computers.woot.com')) return 'computers';
+  if (url.includes('home.woot.com')) return 'home';
+  if (url.includes('tools.woot.com')) return 'tools';
+  if (url.includes('sport.woot.com')) return 'sport';
+  if (url.includes('sellout.woot.com')) return 'clearance';
+  if (url.includes('shirt.woot.com')) return 'shirts';
+  if (url.includes('wine.woot.com')) return 'wine';
+
+  // Match by marketingName
+  if (mkt.includes('electronic')) return 'electronics';
+  if (mkt.includes('computer')) return 'computers';
+  if (mkt.includes('home')) return 'home';
+  if (mkt.includes('tool') || mkt.includes('garden')) return 'tools';
+  if (mkt.includes('sport')) return 'sport';
+  if (mkt.includes('clearance') || mkt.includes('sellout')) return 'clearance';
+  if (mkt.includes('shirt')) return 'shirts';
+  if (mkt.includes('gourmet') || mkt.includes('grocery')) return 'gourmet';
+  if (mkt.includes('wine')) return 'wine';
+  if (mkt.includes('industrial')) return 'industrial';
+  if (mkt.includes('woot-off') || mkt.includes('wootoff')) return 'wootoff';
+  if (mkt.includes('featured')) return 'featured';
+
+  // Fallback to primaryCategory
+  if (cat.includes('electronic')) return 'electronics';
+  if (cat.includes('computer')) return 'computers';
+  if (cat.includes('home')) return 'home';
+  if (cat.includes('tool')) return 'tools';
+  if (cat.includes('sport')) return 'sport';
+
+  return 'other';
+}
+
+function renderCategoryFilterBar() {
+  const bar = document.getElementById('category-filter-bar');
+  const container = document.getElementById('category-filter-buttons');
+  if (!bar || !container) return;
+
+  // Count deals per category (exclude sold out & blocked)
+  const catCounts = {};
+  state.deals.forEach(d => {
+    if (d.isSoldOut || isBlockedDeal(d)) return;
+    const key = getDealCategoryKey(d);
+    catCounts[key] = (catCounts[key] || 0) + 1;
+  });
+
+  // Remove 'other' if it has 0 deals
+  const keys = Object.keys(catCounts).filter(k => catCounts[k] > 0);
+
+  if (keys.length <= 1) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+
+  // Sort by count descending
+  keys.sort((a, b) => catCounts[b] - catCounts[a]);
+
+  const btns = keys.map(key => {
+    const meta = CATEGORY_META[key] || { emoji: '📦', label: key.charAt(0).toUpperCase() + key.slice(1), color: 'other' };
+    const isActive = state.activeCategories.has(key);
+    return `<button class="cat-filter-btn${isActive ? ' active' : ''}" data-cat-key="${key}" data-cat-color="${meta.color}"
+      title="Filter by ${meta.label} (${catCounts[key]} deals)">${meta.emoji} ${meta.label} <span class="cat-count">${catCounts[key]}</span></button>`;
+  }).join('');
+
+  const clearBtn = state.activeCategories.size > 0
+    ? `<button class="cat-filter-btn-clear" id="btn-clear-categories" title="Clear category filter">✕ Clear</button>`
+    : '';
+
+  container.innerHTML = btns + clearBtn;
+
+  // Bind events
+  container.querySelectorAll('.cat-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => toggleCategoryFilter(btn.dataset.catKey));
+  });
+  const clearEl = document.getElementById('btn-clear-categories');
+  if (clearEl) clearEl.addEventListener('click', clearCategoryFilters);
+}
+
+function toggleCategoryFilter(catKey) {
+  if (state.activeCategories.has(catKey)) {
+    state.activeCategories.delete(catKey);
+  } else {
+    state.activeCategories.add(catKey);
+  }
+  renderCategoryFilterBar();
+  renderDeals();
+}
+
+function clearCategoryFilters() {
+  state.activeCategories.clear();
+  renderCategoryFilterBar();
+  renderDeals();
+}
+
 // ===== SCANNING (fetches from server, which scans Woot API autonomously) =====
 async function scanDeals() {
   if (state.isScanning) return;
@@ -1171,6 +1290,14 @@ function renderDeals() {
     });
   }
 
+  // Dynamic category filter (additional AND filter from category bar)
+  if (state.activeCategories.size > 0) {
+    filtered = filtered.filter(d => {
+      const dealCat = getDealCategoryKey(d);
+      return state.activeCategories.has(dealCat);
+    });
+  }
+
   // Sort
   if (sort === 'discount-desc') filtered.sort((a,b) => b.discount - a.discount);
   else if (sort === 'price-asc') filtered.sort((a,b) => a.salePrice - b.salePrice);
@@ -1277,6 +1404,9 @@ function renderDeals() {
   // Lazy-load sparklines for visible deals
   const visibleIds = filtered.slice(0, 30).map(d => d.id);
   if (visibleIds.length > 0) fetchSparklines(visibleIds);
+
+  // Update dynamic category filter bar
+  renderCategoryFilterBar();
 }
 
 function toggleFavorite(dealId) {
