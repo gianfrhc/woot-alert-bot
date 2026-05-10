@@ -609,21 +609,28 @@ function resetSettings() {
 // ===== KEYWORD BUTTONS =====
 function addKeywordFromInput() {
   const input = document.getElementById('keyword-input');
-  const text = input.value.trim();
-  if (!text) return;
-  // F-10: Length validation
-  if (text.length < 2) { showToast('Keyword must be at least 2 characters', 'error'); return; }
-  if (text.length > 30) { showToast('Keyword must be 30 characters or less', 'error'); return; }
-  if (state.settings.keywordButtons.some(k => k.toLowerCase() === text.toLowerCase())) {
-    showToast('Keyword already exists', 'info');
-    return;
+  const raw = input.value.trim();
+  if (!raw) return;
+  // Support comma-separated input: "amd, intel, ryzen" → 3 keywords
+  const items = raw.split(',').map(s => s.trim()).filter(Boolean);
+  let added = 0;
+  for (const text of items) {
+    if (text.length < 2) { showToast(`"${text}" must be at least 2 characters`, 'error'); continue; }
+    if (text.length > 30) { showToast(`"${text}" must be 30 characters or less`, 'error'); continue; }
+    if (state.settings.keywordButtons.some(k => k.toLowerCase() === text.toLowerCase())) {
+      if (items.length === 1) showToast('Keyword already exists', 'info');
+      continue;
+    }
+    state.settings.keywordButtons.push(text);
+    added++;
   }
-  state.settings.keywordButtons.push(text);
   input.value = '';
-  saveSettings();
-  renderKeywordTagsSettings();
-  renderKeywordButtonsMain();
-  showToast(`Keyword "${text}" added`, 'success');
+  if (added > 0) {
+    saveSettings();
+    renderKeywordTagsSettings();
+    renderKeywordButtonsMain();
+    showToast(`${added} keyword${added > 1 ? 's' : ''} added`, 'success');
+  }
 }
 
 function removeKeyword(keyword) {
@@ -718,20 +725,28 @@ function renderKeywordButtonsMain() {
 // ===== BLOCKED WORDS =====
 function addBlockedWordFromInput() {
   const input = document.getElementById('blocked-word-input');
-  const text = input.value.trim().toLowerCase();
-  if (!text) return;
-  if (text.length < 2) { showToast('Blocked word must be at least 2 characters', 'error'); return; }
-  if (text.length > 30) { showToast('Blocked word must be 30 characters or less', 'error'); return; }
+  const raw = input.value.trim().toLowerCase();
+  if (!raw) return;
+  // Support comma-separated input: "tablet, celular, case" → 3 blocked words
+  const items = raw.split(',').map(s => s.trim()).filter(Boolean);
   if (!state.settings.blockedWords) state.settings.blockedWords = [];
-  if (state.settings.blockedWords.some(w => w.toLowerCase() === text)) {
-    showToast('Word already blocked', 'info');
-    return;
+  let added = 0;
+  for (const text of items) {
+    if (text.length < 2) { showToast(`"${text}" must be at least 2 characters`, 'error'); continue; }
+    if (text.length > 30) { showToast(`"${text}" must be 30 characters or less`, 'error'); continue; }
+    if (state.settings.blockedWords.some(w => w.toLowerCase() === text)) {
+      if (items.length === 1) showToast('Word already blocked', 'info');
+      continue;
+    }
+    state.settings.blockedWords.push(text);
+    added++;
   }
-  state.settings.blockedWords.push(text);
   input.value = '';
-  saveSettings();
-  renderBlockedWordsSettings();
-  showToast(`"${text}" added to blocked words`, 'success');
+  if (added > 0) {
+    saveSettings();
+    renderBlockedWordsSettings();
+    showToast(`${added} blocked word${added > 1 ? 's' : ''} added`, 'success');
+  }
 }
 
 function removeBlockedWord(word) {
