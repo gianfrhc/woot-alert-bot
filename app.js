@@ -1165,10 +1165,42 @@ function renderDeals() {
     const endMs = deal._endMs || (deal.endDate ? new Date(deal.endDate).getTime() : null);
     const isEnding = endMs && (endMs - Date.now()) < 4*3600000;
     const hoursLeft = endMs ? Math.max(0, Math.round((endMs - Date.now()) / 3600000)) : null;
+    const msLeft = endMs ? Math.max(0, endMs - Date.now()) : null;
     const timeLeftText = hoursLeft !== null ? formatTimeLeft(hoursLeft) : '';
     const catLabel = deal.primaryCategory || '';
     const conditionLabel = deal.condition || '';
     const animClass = !state.hasRenderedOnce ? 'animate-in' : '';
+
+    // Condition class for color-coded left border
+    const condLow = conditionLabel.toLowerCase();
+    const condClass = condLow.includes('new') && !condLow.includes('recondition') && !condLow.includes('refurb') ? 'cond-new'
+      : condLow.includes('open box') ? 'cond-openbox'
+      : condLow.includes('refurb') ? 'cond-refurbished'
+      : condLow.includes('recondition') || condLow.includes('factory') ? 'cond-reconditioned'
+      : '';
+
+    // Category class for color badges
+    const catLow = catLabel.toLowerCase();
+    const url = (deal.url || '').toLowerCase();
+    const catClass = url.includes('electronics.woot.com') || catLow.includes('electronics') ? 'cat-electronics'
+      : url.includes('computers.woot.com') || catLow.includes('computer') ? 'cat-computers'
+      : url.includes('sellout.woot.com') || catLow.includes('clearance') ? 'cat-clearance'
+      : catLow.includes('warehouse') ? 'cat-warehouse'
+      : url.includes('home.woot.com') || catLow.includes('home') ? 'cat-home'
+      : url.includes('tools.woot.com') || catLow.includes('tools') ? 'cat-tools'
+      : url.includes('sport.woot.com') || catLow.includes('sport') ? 'cat-sport'
+      : '';
+
+    // Timer gradient class
+    const timeClass = msLeft === null ? ''
+      : msLeft < 3600000 ? 'time-critical'     // <1h → red blinking
+      : msLeft < 24*3600000 ? 'time-urgent'     // <24h → red
+      : msLeft < 72*3600000 ? 'time-warning'    // <3d → yellow
+      : 'time-safe';                             // >3d → green
+
+    // New deal pulse: if deal appeared in the last 2 minutes
+    const dealAge = Date.now() - new Date(deal.startDate).getTime();
+    const isNewDeal = state.hasRenderedOnce && dealAge < 120000;
 
     // Format price range
     const priceRange = deal.salePriceMax > deal.salePrice
@@ -1176,7 +1208,7 @@ function renderDeals() {
       : `$${deal.salePrice.toFixed(2)}`;
 
     return `
-    <div class="deal-card ${isHot ? 'hot-deal' : ''} ${animClass}" style="${!state.hasRenderedOnce ? 'animation-delay:'+Math.min(i*0.03,0.6)+'s' : ''}">
+    <div class="deal-card ${isHot ? 'hot-deal' : ''} ${condClass} ${animClass} ${isNewDeal ? 'new-deal-pulse' : ''}" style="${!state.hasRenderedOnce ? 'animation-delay:'+Math.min(i*0.03,0.6)+'s' : ''}">
       <div class="deal-badges">
         ${deal.discount > 0 ? `<span class="badge ${deal.discount >= 60 ? 'badge-hot' : deal.discount >= 40 ? 'badge-discount' : 'badge-mild'}">${deal.discount}% OFF</span>` : ''}
         ${deal.isSoldOut ? '<span class="badge badge-soldout">Sold Out</span>' : ''}
@@ -1188,8 +1220,8 @@ function renderDeals() {
       <div class="deal-body">
         <div class="deal-title"><a href="${deal.url}" target="_blank" rel="noopener">${escHtml(deal.title)}</a></div>
         <div class="deal-condition">
-          ${conditionLabel ? `<span class="condition-tag">${escHtml(conditionLabel)}</span>` : ''}
-          ${catLabel ? `<span class="category-tag">${escHtml(catLabel)}</span>` : ''}
+          ${conditionLabel ? `<span class="condition-tag ${condClass}">${escHtml(conditionLabel)}</span>` : ''}
+          ${catLabel ? `<span class="category-tag ${catClass}">${escHtml(catLabel)}</span>` : ''}
         </div>
         <div class="deal-pricing">
           <span class="deal-sale-price">${priceRange}</span>
@@ -1199,7 +1231,7 @@ function renderDeals() {
         <div class="sparkline-slot" data-deal-id="${deal.id}"></div>
       </div>
       <div class="deal-footer">
-        <span class="deal-meta">${timeLeftText}</span>
+        <span class="deal-meta ${timeClass}">${timeLeftText}</span>
         <div class="deal-actions">
           <button class="deal-fav ${state.favorites.has(deal.id) ? 'active' : ''}" data-deal-id="${deal.id}" title="${state.favorites.has(deal.id) ? 'Remove from favorites' : 'Add to favorites'}" aria-label="Toggle favorite">${state.favorites.has(deal.id) ? '💖' : '🤍'}</button>
           ${deal.forumUrl ? `<a href="${deal.forumUrl}" target="_blank" rel="noopener" class="deal-forum" title="Forum Discussion">💬</a>` : ''}
@@ -1340,7 +1372,7 @@ function formatTimeLeft(hours) {
   if (hours > 48) return Math.round(hours / 24) + 'd left';
   if (hours > 1) return hours + 'h left';
   if (hours === 1) return '1h left';
-  return '<1h left';
+  return '⚡ <1h left';
 }
 
 // ===== EXPORT CSV =====
