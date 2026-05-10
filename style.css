@@ -330,7 +330,7 @@ input,select{font-family:inherit}
   .filter-chips{order:3;width:100%}
 }
 @media(max-width:768px){
-  .app-wrapper{padding:10px 12px 32px}
+  .app-wrapper{padding:10px 12px 80px} /* extra bottom for FAB */
   .app-header{padding:10px 0;margin-bottom:12px;gap:8px}
   .logo-icon{width:36px;height:36px;border-radius:8px}
   .logo-icon svg{width:20px;height:20px}
@@ -342,34 +342,56 @@ input,select{font-family:inherit}
   .btn-icon svg{width:14px;height:14px}
   .btn-primary{padding:8px 14px;font-size:0.8rem}
   .status-indicator{padding:5px 10px;font-size:0.72rem;gap:5px}
-  .stats-bar{grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
-  .stat-card{padding:10px 12px;gap:10px}
-  .stat-icon{width:34px;height:34px;border-radius:8px}
-  .stat-icon svg{width:16px;height:16px}
-  .stat-value{font-size:1.05rem}
-  .stat-label{font-size:0.62rem}
-  .filter-bar{gap:6px;margin-bottom:10px}
+
+  /* Hide secondary header icons on mobile — show via overflow menu */
+  .header-right .btn-icon.mobile-hide{display:none}
+
+  /* Stats: compact */
+  .stats-bar{grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  .stat-card{padding:8px 10px;gap:8px}
+  .stat-icon{width:30px;height:30px;border-radius:8px}
+  .stat-icon svg{width:14px;height:14px}
+  .stat-value{font-size:1rem}
+  .stat-label{font-size:0.6rem}
+
+  /* Filter chips: horizontal scroll, 1 row */
+  .filter-bar{gap:6px;margin-bottom:8px}
   .search-box{min-width:unset;max-width:unset;flex:1;padding:8px 10px}
   .search-box input{font-size:0.8rem}
-  .filter-chips{gap:4px;width:100%;order:10}
-  .filter-chip{padding:5px 9px;font-size:0.68rem}
+  .filter-chips{gap:5px;width:100%;order:10;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
+  .filter-chips::-webkit-scrollbar{display:none}
+  .filter-chip{padding:5px 10px;font-size:0.68rem;flex-shrink:0}
   .deals-count{margin-left:0;padding-left:0;border-left:none;font-size:0.7rem;order:5}
   .sort-dropdown{margin-left:0;order:4}
-  .keyword-filter-bar{padding:8px 12px;gap:8px;margin-bottom:10px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
-  .keyword-filter-label{font-size:0.72rem}
-  .keyword-buttons{overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px;gap:6px;-webkit-overflow-scrolling:touch}
-  .keyword-btn{padding:5px 12px;font-size:0.72rem}
-  .keyword-btn-clear{padding:5px 10px;font-size:0.68rem}
-  .deals-grid{grid-template-columns:1fr;gap:10px}
-  .deal-image{height:160px;padding:10px}
-  .deal-body{padding:10px 14px}
-  .deal-title{font-size:0.84rem;margin-bottom:6px}
-  .deal-pricing{gap:8px;margin-bottom:6px}
-  .deal-sale-price{font-size:1.1rem}
-  .deal-footer{padding:8px 14px}
-  .deal-fav{font-size:1.2rem;padding:6px;min-width:36px;min-height:36px;display:flex;align-items:center;justify-content:center}
-  .deal-cta{padding:7px 14px;font-size:0.75rem}
-  .deal-forum{font-size:1.1rem;padding:4px}
+
+  /* Keywords: horizontal scroll */
+  .keyword-filter-bar{padding:6px 12px;gap:6px;margin-bottom:8px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
+  .keyword-filter-label{font-size:0.7rem;flex-shrink:0}
+  .keyword-buttons{overflow-x:auto;flex-wrap:nowrap;padding-bottom:2px;gap:6px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .keyword-buttons::-webkit-scrollbar{display:none}
+  .keyword-btn{padding:5px 12px;font-size:0.72rem;flex-shrink:0}
+  .keyword-btn-clear{padding:5px 10px;font-size:0.68rem;flex-shrink:0}
+
+  /* Deal cards: compact for mobile */
+  .deals-grid{grid-template-columns:1fr;gap:8px}
+  .deal-image{height:120px;padding:8px}
+  .deal-body{padding:8px 12px}
+  .deal-title{font-size:0.82rem;margin-bottom:4px;-webkit-line-clamp:2}
+  .deal-condition{margin-bottom:6px}
+  .deal-pricing{gap:8px;margin-bottom:4px}
+  .deal-sale-price{font-size:1.05rem}
+  .deal-savings{font-size:0.65rem;padding:1px 6px}
+  .deal-footer{padding:8px 12px}
+
+  /* Tap targets: minimum 44px for accessibility */
+  .deal-fav{font-size:1.2rem;padding:8px;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center}
+  .deal-forum{font-size:1.1rem;padding:8px;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center}
+
+  /* View Deal: full-width on mobile */
+  .deal-cta{padding:10px 16px;font-size:0.78rem;flex:1;text-align:center}
+  .deal-actions{flex:1;gap:4px}
+
+  /* Settings panel */
   .settings-content{width:100vw;border-left:none}
   .settings-header{padding:14px 16px;padding-top:max(14px,env(safe-area-inset-top))}
   .settings-header h2{font-size:1.05rem}
@@ -381,7 +403,7 @@ input,select{font-family:inherit}
   .setting-hint{font-size:0.68rem}
   .alerts-section{margin-bottom:12px}
   .alert-item{padding:10px 12px;gap:10px}
-  .toast-container{right:12px;left:12px;bottom:16px}
+  .toast-container{right:12px;left:12px;bottom:80px} /* above FAB */
   .toast{min-width:unset;padding:10px 14px}
   .toast-message{font-size:0.78rem}
   .scan-timer{padding:6px 0;font-size:0.72rem}
@@ -395,6 +417,15 @@ input,select{font-family:inherit}
   .logo-icon{width:32px;height:32px}
   .btn-icon{width:32px;height:32px}
 }
+
+/* === FLOATING ACTION BUTTON (mobile scan) === */
+.fab-scan{display:none;position:fixed;bottom:24px;right:20px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#7c3aed);color:#fff;border:none;box-shadow:0 4px 20px rgba(99,102,241,0.4);cursor:pointer;z-index:900;transition:all 0.3s;align-items:center;justify-content:center}
+.fab-scan svg{width:24px;height:24px}
+.fab-scan:hover{transform:scale(1.1);box-shadow:0 6px 28px rgba(99,102,241,0.5)}
+.fab-scan:active{transform:scale(0.95)}
+.fab-scan.scanning{animation:fabSpin 1s linear infinite}
+@keyframes fabSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@media(max-width:768px){.fab-scan{display:flex}}
 
 /* === LIGHT THEME === */
 [data-theme="light"] {

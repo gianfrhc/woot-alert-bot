@@ -266,6 +266,9 @@ function toggleApiKeyVisibility() {
 // ===== EVENTS =====
 function bindEvents() {
   document.getElementById('btn-refresh').addEventListener('click', () => scanDeals());
+  // FAB scan button (mobile)
+  const fabScan = document.getElementById('fab-scan');
+  if (fabScan) fabScan.addEventListener('click', () => scanDeals());
   document.getElementById('btn-settings').addEventListener('click', () => toggleSettings(true));
   document.getElementById('btn-close-settings').addEventListener('click', () => toggleSettings(false));
   document.getElementById('settings-overlay').addEventListener('click', () => toggleSettings(false));
