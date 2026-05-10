@@ -40,7 +40,7 @@ const state = {
   favorites: new Set(),
   scannerActive: false,
   serverInterval: 120,
-  activeCategories: new Set()  // Dynamic category filter (OR logic)
+  activeCategories: new Set(['PC', 'TECH'])  // Dynamic tag filter — PC & TECH selected by default
 };
 
 // ===== INIT =====
@@ -836,8 +836,16 @@ function renderCategoryFilterBar() {
   }
   bar.style.display = 'flex';
 
-  // Sort by count descending
-  tags.sort((a, b) => tagCounts[b] - tagCounts[a]);
+  // Sort: pin PC & TECH first, then by count descending
+  const pinned = ['PC', 'TECH'];
+  tags.sort((a, b) => {
+    const aPin = pinned.indexOf(a);
+    const bPin = pinned.indexOf(b);
+    if (aPin !== -1 && bPin !== -1) return aPin - bPin;
+    if (aPin !== -1) return -1;
+    if (bPin !== -1) return 1;
+    return tagCounts[b] - tagCounts[a];
+  });
 
   const btns = tags.map(tag => {
     const emoji = TAG_EMOJIS[tag.toLowerCase()] || '🏷️';
