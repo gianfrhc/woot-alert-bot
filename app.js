@@ -54,6 +54,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   startAutoRefresh();
   connectSSE();
   initBackToTop();
+  initPullToRefresh();
 });
 
 // Back to Top FAB
@@ -73,6 +74,72 @@ function initBackToTop() {
   fab.addEventListener('click', () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
+}
+
+// Pull to Refresh (mobile PWA)
+function initPullToRefresh() {
+  const indicator = document.getElementById('ptr-indicator');
+  const spinner = indicator?.querySelector('.ptr-spinner');
+  const text = indicator?.querySelector('.ptr-text');
+  if (!indicator) return;
+
+  const THRESHOLD = 60;
+  let startY = 0;
+  let pulling = false;
+  let refreshing = false;
+
+  document.addEventListener('touchstart', (e) => {
+    if (refreshing || window.scrollY > 5) return;
+    startY = e.touches[0].clientY;
+    pulling = true;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!pulling || refreshing) return;
+    const dy = Math.max(0, e.touches[0].clientY - startY);
+    if (dy <= 0) return;
+
+    const progress = Math.min(dy / THRESHOLD, 1);
+    const height = Math.min(dy * 0.5, 50);
+    indicator.style.height = height + 'px';
+    indicator.style.padding = height > 10 ? '8px 0' : '0';
+    indicator.classList.add('pulling');
+
+    // Rotate spinner based on pull progress
+    if (spinner) spinner.style.transform = `rotate(${progress * 360}deg)`;
+    if (text) text.textContent = progress >= 1 ? 'Release to refresh' : 'Pull down to refresh';
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    if (!pulling || refreshing) return;
+    pulling = false;
+
+    const currentHeight = parseFloat(indicator.style.height) || 0;
+    if (currentHeight >= THRESHOLD * 0.4) {
+      // Trigger refresh
+      refreshing = true;
+      indicator.classList.remove('pulling');
+      indicator.classList.add('refreshing');
+      indicator.style.height = '';
+      indicator.style.padding = '';
+      if (text) text.textContent = 'Refreshing...';
+      if (spinner) spinner.style.transform = '';
+
+      scanDeals().finally(() => {
+        setTimeout(() => {
+          refreshing = false;
+          indicator.classList.remove('refreshing');
+          if (text) text.textContent = 'Release to refresh';
+        }, 600);
+      });
+    } else {
+      // Cancel — snap back
+      indicator.classList.remove('pulling');
+      indicator.style.height = '0';
+      indicator.style.padding = '0';
+      if (spinner) spinner.style.transform = '';
+    }
+  }, { passive: true });
 }
 
 async function loadSettings() {
