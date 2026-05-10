@@ -800,60 +800,19 @@ function isAllowedCondition(deal) {
   return true;
 }
 
-// ===== DYNAMIC CATEGORY FILTER =====
-const CATEGORY_META = {
-  'electronics': { emoji: '🔌', label: 'Electronics', color: 'electronics' },
-  'computers':   { emoji: '💻', label: 'Computers',   color: 'computers' },
-  'home':        { emoji: '🏠', label: 'Home',        color: 'home' },
-  'tools':       { emoji: '🔧', label: 'Tools',       color: 'tools' },
-  'sport':       { emoji: '⚽', label: 'Sport',       color: 'sport' },
-  'clearance':   { emoji: '🏷️', label: 'Clearance',   color: 'clearance' },
-  'shirts':      { emoji: '👕', label: 'Shirts',      color: 'shirts' },
-  'gourmet':     { emoji: '🍽️', label: 'Gourmet',     color: 'gourmet' },
-  'wine':        { emoji: '🍷', label: 'Wine',        color: 'wine' },
-  'industrial':  { emoji: '🏭', label: 'Industrial',  color: 'other' },
-  'wootoff':     { emoji: '⚡', label: 'Woot-Off',    color: 'other' },
-  'featured':    { emoji: '⭐', label: 'Featured',    color: 'other' },
+// ===== DYNAMIC TAG FILTER =====
+// Uses deal.primaryCategory — the actual tag shown on each card (PC, TOOLS, SPORT, HOME, TECH, etc.)
+const TAG_EMOJIS = {
+  'pc': '💻', 'tech': '🔌', 'electronics': '🔌', 'home': '🏠', 'tools': '🔧',
+  'sport': '⚽', 'shirts': '👕', 'gourmet': '🍽️', 'wine': '🍷', 'kids': '🧸',
+  'kitchen': '🍳', 'garden': '🌿', 'auto': '🚗', 'office': '🖨️', 'health': '💊',
+  'accessories': '🎒', 'audio': '🎧', 'gaming': '🎮', 'outdoor': '🏕️', 'pets': '🐾',
+  'industrial': '🏭', 'photography': '📷', 'wearable': '⌚', 'phone': '📱',
 };
 
-// Normalize a deal's category to a key
-function getDealCategoryKey(deal) {
-  const mkt = (deal.marketingName || '').toLowerCase();
-  const url = (deal.url || '').toLowerCase();
-  const cat = (deal.primaryCategory || '').toLowerCase();
-
-  // Match by URL subdomain first (most reliable)
-  if (url.includes('electronics.woot.com')) return 'electronics';
-  if (url.includes('computers.woot.com')) return 'computers';
-  if (url.includes('home.woot.com')) return 'home';
-  if (url.includes('tools.woot.com')) return 'tools';
-  if (url.includes('sport.woot.com')) return 'sport';
-  if (url.includes('sellout.woot.com')) return 'clearance';
-  if (url.includes('shirt.woot.com')) return 'shirts';
-  if (url.includes('wine.woot.com')) return 'wine';
-
-  // Match by marketingName
-  if (mkt.includes('electronic')) return 'electronics';
-  if (mkt.includes('computer')) return 'computers';
-  if (mkt.includes('home')) return 'home';
-  if (mkt.includes('tool') || mkt.includes('garden')) return 'tools';
-  if (mkt.includes('sport')) return 'sport';
-  if (mkt.includes('clearance') || mkt.includes('sellout')) return 'clearance';
-  if (mkt.includes('shirt')) return 'shirts';
-  if (mkt.includes('gourmet') || mkt.includes('grocery')) return 'gourmet';
-  if (mkt.includes('wine')) return 'wine';
-  if (mkt.includes('industrial')) return 'industrial';
-  if (mkt.includes('woot-off') || mkt.includes('wootoff')) return 'wootoff';
-  if (mkt.includes('featured')) return 'featured';
-
-  // Fallback to primaryCategory
-  if (cat.includes('electronic')) return 'electronics';
-  if (cat.includes('computer')) return 'computers';
-  if (cat.includes('home')) return 'home';
-  if (cat.includes('tool')) return 'tools';
-  if (cat.includes('sport')) return 'sport';
-
-  return 'other';
+function getDealTag(deal) {
+  const tag = (deal.primaryCategory || '').trim();
+  return tag || null;
 }
 
 function renderCategoryFilterBar() {
@@ -861,35 +820,35 @@ function renderCategoryFilterBar() {
   const container = document.getElementById('category-filter-buttons');
   if (!bar || !container) return;
 
-  // Count deals per category (exclude sold out & blocked)
-  const catCounts = {};
+  // Count deals per tag (exclude sold out & blocked)
+  const tagCounts = {};
   state.deals.forEach(d => {
     if (d.isSoldOut || isBlockedDeal(d)) return;
-    const key = getDealCategoryKey(d);
-    catCounts[key] = (catCounts[key] || 0) + 1;
+    const tag = getDealTag(d);
+    if (tag) tagCounts[tag] = (tagCounts[tag] || 0) + 1;
   });
 
-  // Remove 'other' if it has 0 deals
-  const keys = Object.keys(catCounts).filter(k => catCounts[k] > 0);
+  const tags = Object.keys(tagCounts).filter(t => tagCounts[t] > 0);
 
-  if (keys.length <= 1) {
+  if (tags.length <= 1) {
     bar.style.display = 'none';
     return;
   }
   bar.style.display = 'flex';
 
   // Sort by count descending
-  keys.sort((a, b) => catCounts[b] - catCounts[a]);
+  tags.sort((a, b) => tagCounts[b] - tagCounts[a]);
 
-  const btns = keys.map(key => {
-    const meta = CATEGORY_META[key] || { emoji: '📦', label: key.charAt(0).toUpperCase() + key.slice(1), color: 'other' };
-    const isActive = state.activeCategories.has(key);
-    return `<button class="cat-filter-btn${isActive ? ' active' : ''}" data-cat-key="${key}" data-cat-color="${meta.color}"
-      title="Filter by ${meta.label} (${catCounts[key]} deals)">${meta.emoji} ${meta.label} <span class="cat-count">${catCounts[key]}</span></button>`;
+  const btns = tags.map(tag => {
+    const emoji = TAG_EMOJIS[tag.toLowerCase()] || '🏷️';
+    const isActive = state.activeCategories.has(tag);
+    const colorKey = tag.toLowerCase().replace(/[^a-z]/g, '');
+    return `<button class="cat-filter-btn${isActive ? ' active' : ''}" data-cat-key="${escHtml(tag)}" data-cat-color="${colorKey}"
+      title="Show only '${escHtml(tag)}' tagged deals (${tagCounts[tag]})">${emoji} ${escHtml(tag)} <span class="cat-count">${tagCounts[tag]}</span></button>`;
   }).join('');
 
   const clearBtn = state.activeCategories.size > 0
-    ? `<button class="cat-filter-btn-clear" id="btn-clear-categories" title="Clear category filter">✕ Clear</button>`
+    ? `<button class="cat-filter-btn-clear" id="btn-clear-categories" title="Clear tag filter">✕ Clear</button>`
     : '';
 
   container.innerHTML = btns + clearBtn;
@@ -1290,11 +1249,11 @@ function renderDeals() {
     });
   }
 
-  // Dynamic category filter (additional AND filter from category bar)
+  // Dynamic tag filter (additional AND filter from tag bar)
   if (state.activeCategories.size > 0) {
     filtered = filtered.filter(d => {
-      const dealCat = getDealCategoryKey(d);
-      return state.activeCategories.has(dealCat);
+      const tag = getDealTag(d);
+      return tag && state.activeCategories.has(tag);
     });
   }
 
