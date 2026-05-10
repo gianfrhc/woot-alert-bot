@@ -139,7 +139,9 @@ input,select{font-family:inherit}
 .sort-dropdown{margin-left:auto}
 
 /* === DEALS GRID === */
-.deals-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.deals-grid{display:grid;grid-template-columns:1fr;gap:12px}
+@media(min-width:769px){.deals-grid{grid-template-columns:repeat(2,1fr);gap:14px}}
+@media(min-width:1400px){.deals-grid{grid-template-columns:repeat(3,1fr);gap:16px}}
 
 /* === DEAL CARD === */
 .deal-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:all 0.3s;position:relative;box-shadow:0 1px 4px rgba(0,0,0,0.15)}
