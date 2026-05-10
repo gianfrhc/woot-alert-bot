@@ -258,6 +258,10 @@ input,select{font-family:inherit}
 .cat-filter-btn.active{border-color:var(--accent);color:#fff;box-shadow:0 2px 12px var(--accent-glow)}
 .cat-filter-btn .cat-count{font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:999px;background:rgba(255,255,255,0.1);color:inherit;font-family:'JetBrains Mono',monospace}
 .cat-filter-btn.active .cat-count{background:rgba(255,255,255,0.25)}
+.tag-sparkline{flex-shrink:0;opacity:0.6;vertical-align:middle;margin-left:2px}
+.cat-filter-btn:hover .tag-sparkline{opacity:1}
+.cat-filter-btn.active .tag-sparkline{opacity:0.8}
+.cat-filter-btn.active .tag-sparkline polyline{stroke:#fff !important}
 /* Category-specific active colors */
 .cat-filter-btn.active[data-cat-color="electronics"]{background:rgba(59,130,246,0.85);border-color:#3b82f6}
 .cat-filter-btn.active[data-cat-color="computers"]{background:rgba(139,92,246,0.85);border-color:#8b5cf6}

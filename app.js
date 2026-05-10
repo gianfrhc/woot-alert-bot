@@ -819,6 +819,38 @@ const TAG_EMOJIS = {
   'industrial': '🏭', 'photography': '📷', 'wearable': '⌚', 'phone': '📱',
 };
 
+// Tag count history for sparklines (last 10 snapshots per tag)
+const tagHistory = {}; // { tagName: [count1, count2, ...] }
+const TAG_HISTORY_MAX = 10;
+
+function recordTagHistory(tagCounts) {
+  for (const [tag, count] of Object.entries(tagCounts)) {
+    if (!tagHistory[tag]) tagHistory[tag] = [];
+    const h = tagHistory[tag];
+    // Only push if changed or first entry
+    if (h.length === 0 || h[h.length - 1] !== count) {
+      h.push(count);
+      if (h.length > TAG_HISTORY_MAX) h.shift();
+    }
+  }
+}
+
+function miniSparklineSVG(points) {
+  if (!points || points.length < 2) return '';
+  const w = 36, h = 12;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = max - min || 1;
+  const coords = points.map((v, i) => {
+    const x = (i / (points.length - 1)) * w;
+    const y = h - ((v - min) / range) * (h - 2) - 1;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const trend = points[points.length - 1] - points[0];
+  const color = trend > 0 ? '#10b981' : trend < 0 ? '#ef4444' : '#6b7280';
+  return `<svg class="tag-sparkline" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${coords}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
 function getDealTag(deal) {
   const tag = (deal.primaryCategory || '').trim();
   return tag || null;
@@ -856,12 +888,16 @@ function renderCategoryFilterBar() {
     return tagCounts[b] - tagCounts[a];
   });
 
+  // Record for sparkline history
+  recordTagHistory(tagCounts);
+
   const btns = tags.map(tag => {
     const emoji = TAG_EMOJIS[tag.toLowerCase()] || '🏷️';
     const isActive = state.activeCategories.has(tag);
     const colorKey = tag.toLowerCase().replace(/[^a-z]/g, '');
+    const sparkline = miniSparklineSVG(tagHistory[tag]);
     return `<button class="cat-filter-btn${isActive ? ' active' : ''}" data-cat-key="${escHtml(tag)}" data-cat-color="${colorKey}"
-      title="Show only '${escHtml(tag)}' tagged deals (${tagCounts[tag]})">${emoji} ${escHtml(tag)} <span class="cat-count">${tagCounts[tag]}</span></button>`;
+      title="Show only '${escHtml(tag)}' tagged deals (${tagCounts[tag]})">${emoji} ${escHtml(tag)} <span class="cat-count">${tagCounts[tag]}</span>${sparkline}</button>`;
   }).join('');
 
   const clearBtn = state.activeCategories.size > 0
