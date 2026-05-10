@@ -3,6 +3,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 
 const PORT = 8080;
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
@@ -253,16 +254,25 @@ function saveSettingsFile(data) {
   atomicWriteJSON(SETTINGS_FILE, data);
 }
 
+// In-memory caches (HIGH-04/HIGH-05: avoid readFileSync on every request)
+let _ntfyLogsCache = null;
+let _favoritesCache = null;
+
 function loadNtfyLogs() {
+  if (_ntfyLogsCache !== null) return _ntfyLogsCache;
   try {
-    if (fs.existsSync(NTFY_LOGS_FILE)) return JSON.parse(fs.readFileSync(NTFY_LOGS_FILE, 'utf8'));
+    if (fs.existsSync(NTFY_LOGS_FILE)) {
+      _ntfyLogsCache = JSON.parse(fs.readFileSync(NTFY_LOGS_FILE, 'utf8'));
+      return _ntfyLogsCache;
+    }
   } catch (e) { console.error('[NtfyLogs] Load error:', e.message); }
-  return [];
+  _ntfyLogsCache = [];
+  return _ntfyLogsCache;
 }
 
 function saveNtfyLogs(logs) {
-  const trimmed = logs.slice(0, 500);
-  atomicWriteJSON(NTFY_LOGS_FILE, trimmed);
+  _ntfyLogsCache = logs.slice(0, 500);
+  atomicWriteJSON(NTFY_LOGS_FILE, _ntfyLogsCache);
 }
 
 // DATA-02: seenOfferIds sync
@@ -631,6 +641,12 @@ const server = http.createServer(async (req, res) => {
 
   // === PROTECTED: SSE Live Updates ===
   if (req.method === 'GET' && urlPath === '/api/events') {
+    // CRIT-04: Enforce SSE client limit
+    if (sseClients.size >= MAX_SSE_CLIENTS) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Too many SSE connections' }));
+      return;
+    }
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -725,8 +741,13 @@ const server = http.createServer(async (req, res) => {
   // HIGH-03: Path traversal fix using path.resolve
   let filePath = urlPath === '/' ? '/index.html' : urlPath;
   const basename = path.basename(filePath);
-  const blocked = ['auth.json', 'settings.json', 'ntfy-logs.json', 'sessions.json', 'seen-ids.json', 'favorites.json', 'price-history.json', 'server.js', 'rpi_update.py', 'rpi_check.py'];
-  if (blocked.includes(basename)) {
+  const ext = path.extname(basename).toLowerCase();
+  // CRIT-02: Block all sensitive files — config, data, scripts, infra
+  const blockedFiles = ['auth.json', 'settings.json', 'ntfy-logs.json', 'sessions.json',
+    'seen-ids.json', 'favorites.json', 'price-history.json', 'server.js',
+    'Dockerfile', 'docker-compose.yml', '.dockerignore', '.gitignore', 'package.json', 'package-lock.json'];
+  const blockedExts = ['.py', '.sh', '.env', '.pem', '.key'];
+  if (blockedFiles.includes(basename) || blockedExts.includes(ext) || basename.startsWith('.')) {
     res.writeHead(403);
     res.end('Forbidden');
     return;
@@ -737,8 +758,8 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(403); res.end('Forbidden'); return;
   }
 
-  const ext = path.extname(resolvedPath).toLowerCase();
-  const contentType = MIME[ext] || 'application/octet-stream';
+  const fileExt = path.extname(resolvedPath).toLowerCase();
+  const contentType = MIME[fileExt] || 'application/octet-stream';
 
   fs.readFile(resolvedPath, (err, data) => {
     if (err) { res.writeHead(404); res.end('Not Found'); return; }
@@ -771,6 +792,8 @@ const scanner = {
 
 // ===== SSE LIVE UPDATES =====
 const sseClients = new Set();
+const MAX_SSE_CLIENTS = 20; // CRIT-04: Limit concurrent SSE connections
+
 function broadcastSSE(eventData) {
   const msg = `data: ${JSON.stringify(eventData)}\n\n`;
   for (const client of sseClients) {
@@ -778,11 +801,25 @@ function broadcastSSE(eventData) {
   }
 }
 
-// ===== FAVORITES =====
+// CRIT-04: SSE heartbeat — detect zombie connections every 30s
+setInterval(() => {
+  const ping = `: heartbeat\n\n`;
+  for (const client of sseClients) {
+    try { client.write(ping); } catch (e) { sseClients.delete(client); }
+  }
+}, 30000);
+
+// ===== FAVORITES (in-memory cached) =====
 function loadFavorites() {
-  try { return JSON.parse(fs.readFileSync(FAVORITES_FILE, 'utf8')); } catch { return []; }
+  if (_favoritesCache !== null) return _favoritesCache;
+  try { _favoritesCache = JSON.parse(fs.readFileSync(FAVORITES_FILE, 'utf8')); }
+  catch { _favoritesCache = []; }
+  return _favoritesCache;
 }
-function saveFavorites(favs) { atomicWriteJSON(FAVORITES_FILE, favs); }
+function saveFavorites(favs) {
+  _favoritesCache = favs;
+  atomicWriteJSON(FAVORITES_FILE, favs);
+}
 
 // ===== PRICE HISTORY =====
 let priceHistory = {}; // { offerId: [{t: timestamp, p: price}, ...] }
@@ -1130,16 +1167,17 @@ async function scannerSendEmail(dealOrDeals, emailAddress, appPassword, recipien
         : `Woot Deal: ${deals[0].title} - $${deals[0].salePrice.toFixed(2)} (${deals[0].discount}% OFF)`;
 
       // Build deal cards HTML
+      // HIGH-03: Sanitize deal fields in email HTML
       const dealCards = deals.map(deal => [
         `<div style="background:#f8f9fa;border-radius:12px;padding:20px;margin:16px 0;">`,
-        deal.photo ? `<img src="${deal.photo}" alt="" style="max-width:150px;border-radius:8px;margin-bottom:12px;">` : '',
-        `<h3 style="margin:0 0 8px;">${deal.title}</h3>`,
-        deal.condition ? `<p style="color:#6b7280;font-size:0.85rem;margin:0 0 8px;">📦 ${deal.condition}</p>` : '',
+        deal.photo ? `<img src="${escapeHtml(deal.photo)}" alt="" style="max-width:150px;border-radius:8px;margin-bottom:12px;">` : '',
+        `<h3 style="margin:0 0 8px;">${escapeHtml(deal.title)}</h3>`,
+        deal.condition ? `<p style="color:#6b7280;font-size:0.85rem;margin:0 0 8px;">📦 ${escapeHtml(deal.condition)}</p>` : '',
         `<div style="font-size:1.3rem;font-weight:bold;color:#10b981;">$${deal.salePrice.toFixed(2)}`,
         deal.listPrice > 0 ? ` <span style="text-decoration:line-through;color:#9ca3af;font-size:0.9rem;">$${deal.listPrice.toFixed(2)}</span>` : '',
         `</div>`,
         deal.discount > 0 ? `<p style="color:#ef4444;font-weight:bold;margin:8px 0;">${deal.discount}% OFF — Save $${(deal.listPrice - deal.salePrice).toFixed(2)}</p>` : '',
-        `<a href="${deal.url}" style="display:inline-block;background:#6366f1;color:#fff;padding:8px 18px;border-radius:6px;text-decoration:none;font-weight:bold;font-size:0.85rem;margin-top:4px;">View Deal →</a>`,
+        `<a href="${escapeHtml(deal.url)}" style="display:inline-block;background:#6366f1;color:#fff;padding:8px 18px;border-radius:6px;text-decoration:none;font-weight:bold;font-size:0.85rem;margin-top:4px;">View Deal →</a>`,
         `</div>`
       ].join('\n')).join('\n');
 
@@ -1436,27 +1474,35 @@ async function scannerDoScan() {
   }
 }
 
+// HIGH-01/02: Fixed backoff — single timer, no leaks
+function scannerClearTimer() {
+  if (scanner.timer) {
+    clearInterval(scanner.timer);
+    clearTimeout(scanner.timer);
+    scanner.timer = null;
+  }
+}
+
 // Apply backoff interval (called when rate limited)
 function scannerApplyBackoff(backoffSec) {
-  if (scanner.timer) clearInterval(scanner.timer);
+  scannerClearTimer();
   console.log(`  ⏱️  Backoff: next scan in ${Math.round(backoffSec / 60)}min`);
-  // Use setTimeout for backoff (single shot), then resume normal interval
+  // Single-shot timeout — scannerDoScan will call backoff again if still limited
+  // or scannerRestoreNormalInterval if cleared
   scanner.timer = setTimeout(() => {
-    scannerDoScan().catch(e => console.error('[Scanner] Backoff scan error:', e));
-    // After backoff scan, if still rate limited, scannerDoScan will call backoff again
-    // If successful, scannerRestoreNormalInterval will be called
-    const settings = loadSettings() || {};
-    const normalInterval = Math.max(90, settings.refreshInterval || 120);
-    scanner.intervalSec = normalInterval;
-    scanner.timer = setInterval(() => {
-      scannerDoScan().catch(e => console.error('[Scanner] Scan error:', e));
-    }, normalInterval * 1000);
+    scanner.timer = null;
+    scannerDoScan().then(() => {
+      // Only set interval if not in backoff (scannerDoScan may have called backoff again)
+      if (!scanner.timer && scanner.consecutive429 === 0) {
+        scannerRestoreNormalInterval();
+      }
+    }).catch(e => console.error('[Scanner] Backoff scan error:', e));
   }, backoffSec * 1000);
 }
 
 // Restore normal scanning interval (called when rate limit clears)
 function scannerRestoreNormalInterval() {
-  if (scanner.timer) { clearInterval(scanner.timer); clearTimeout(scanner.timer); }
+  scannerClearTimer();
   const settings = loadSettings() || {};
   scanner.intervalSec = Math.max(90, settings.refreshInterval || 120);
   console.log(`  ⏱️  Restored normal interval: every ${scanner.intervalSec}s`);
@@ -1467,7 +1513,7 @@ function scannerRestoreNormalInterval() {
 
 // Start/restart the scanner interval
 function scannerStart(coldStart = false) {
-  if (scanner.timer) { clearInterval(scanner.timer); clearTimeout(scanner.timer); }
+  scannerClearTimer();
 
   const settings = loadSettings() || {};
   // Minimum 90s to be respectful to the API (was 60s, caused rate limiting)
@@ -1511,7 +1557,7 @@ server.listen(PORT, '0.0.0.0', () => {
 });
 
 function getLocalIP() {
-  const nets = require('os').networkInterfaces();
+  const nets = os.networkInterfaces();
   for (const name of Object.keys(nets)) {
     for (const net of nets[name]) {
       if (net.family === 'IPv4' && !net.internal) return net.address;
@@ -1519,3 +1565,22 @@ function getLocalIP() {
   }
   return '0.0.0.0';
 }
+
+// MED-03: Graceful shutdown — persist pending data before exit
+function gracefulShutdown(signal) {
+  console.log(`\n  🛑 ${signal} received — shutting down gracefully...`);
+  scannerClearTimer();
+  scannerPersistSeenIdsNow();
+  // Persist price history immediately
+  if (_priceHistoryTimer) { clearTimeout(_priceHistoryTimer); _priceHistoryTimer = null; }
+  try { atomicWriteJSON(PRICE_HISTORY_FILE, priceHistory); } catch (e) { console.error('[Shutdown] Price history save error:', e.message); }
+  // Close all SSE connections
+  for (const client of sseClients) {
+    try { client.end(); } catch (e) { /* ignore */ }
+  }
+  sseClients.clear();
+  console.log('  ✅ Data persisted. Goodbye!');
+  process.exit(0);
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

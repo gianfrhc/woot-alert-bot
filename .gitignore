@@ -14,6 +14,10 @@ ntfy-logs.json
 # Seen IDs (synced across devices)
 seen-ids.json
 
+# User data files — never commit
+favorites.json
+price-history.json
+
 # Atomic write temp files
 *.tmp
 
