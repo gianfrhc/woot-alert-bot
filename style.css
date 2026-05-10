@@ -495,6 +495,15 @@ input,select{font-family:inherit}
 @keyframes fabSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 @media(max-width:768px){.fab-scan{display:flex}}
 
+/* === BACK TO TOP FAB === */
+.fab-top{display:none;position:fixed;bottom:24px;right:84px;width:44px;height:44px;border-radius:50%;background:rgba(30,30,40,0.85);color:#fff;border:1px solid var(--border);box-shadow:0 4px 16px rgba(0,0,0,0.3);cursor:pointer;z-index:900;transition:all 0.3s;align-items:center;justify-content:center;opacity:0;transform:translateY(20px);pointer-events:none;backdrop-filter:blur(8px)}
+.fab-top.visible{display:flex;opacity:1;transform:translateY(0);pointer-events:auto}
+.fab-top svg{width:20px;height:20px}
+.fab-top:hover{background:var(--accent);border-color:var(--accent);transform:translateY(-2px);box-shadow:0 6px 24px var(--accent-glow)}
+.fab-top:active{transform:scale(0.9)}
+@media(max-width:768px){.fab-top{right:auto;left:20px;bottom:24px}}
+@media(min-width:769px){.fab-top{right:24px;bottom:24px}}
+
 /* === LIGHT THEME === */
 [data-theme="light"] {
   --bg-primary: #f5f5f7;

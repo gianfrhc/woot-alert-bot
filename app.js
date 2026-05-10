@@ -53,7 +53,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   scanDeals();
   startAutoRefresh();
   connectSSE();
+  initBackToTop();
 });
+
+// Back to Top FAB
+function initBackToTop() {
+  const fab = document.getElementById('fab-top');
+  if (!fab) return;
+  let ticking = false;
+  window.addEventListener('scroll', () => {
+    if (!ticking) {
+      requestAnimationFrame(() => {
+        fab.classList.toggle('visible', window.scrollY > 400);
+        ticking = false;
+      });
+      ticking = true;
+    }
+  }, { passive: true });
+  fab.addEventListener('click', () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+}
 
 async function loadSettings() {
   // Try server first (shared across devices), fall back to localStorage
