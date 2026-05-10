@@ -376,6 +376,23 @@ function bindEvents() {
   const themeBtn = document.getElementById('btn-theme');
   if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
 
+  // View toggle: grid ↔ list
+  const viewToggle = document.getElementById('btn-view-toggle');
+  if (viewToggle) {
+    // Restore saved preference
+    if (localStorage.getItem('woot-view-mode') === 'list') {
+      document.getElementById('deals-grid')?.classList.add('list-view');
+      document.body.classList.add('list-mode');
+    }
+    viewToggle.addEventListener('click', () => {
+      const grid = document.getElementById('deals-grid');
+      if (!grid) return;
+      const isList = grid.classList.toggle('list-view');
+      document.body.classList.toggle('list-mode', isList);
+      localStorage.setItem('woot-view-mode', isList ? 'list' : 'grid');
+    });
+  }
+
   // API Key: show/hide toggle + clear masked key on edit
   const apiKeyToggle = document.getElementById('btn-toggle-api-key');
   if (apiKeyToggle) apiKeyToggle.addEventListener('click', toggleApiKeyVisibility);
