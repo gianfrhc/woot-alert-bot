@@ -40,7 +40,8 @@ const state = {
   favorites: new Set(),
   scannerActive: false,
   serverInterval: 120,
-  activeCategories: new Set(['PC', 'TECH'])  // Dynamic tag filter — PC & TECH selected by default
+  activeCategories: new Set(['PC', 'TECH']),  // Dynamic tag filter — PC & TECH selected by default
+  unreadAlerts: 0  // Badge counter for unread notifications
 };
 
 // ===== INIT =====
@@ -277,6 +278,14 @@ function bindEvents() {
   document.getElementById('btn-reset-settings').addEventListener('click', resetSettings);
   document.getElementById('btn-clear-alerts').addEventListener('click', clearAlerts);
   document.getElementById('btn-export-csv').addEventListener('click', exportDealsCSV);
+  // Bell badge: click to mark alerts as read
+  const logoBell = document.getElementById('logo-bell');
+  if (logoBell) logoBell.addEventListener('click', () => {
+    state.unreadAlerts = 0;
+    updateAlertBadge();
+    logoBell.classList.remove('has-alerts');
+    clearTimeout(state._bellTimeout);
+  });
   const themeBtn = document.getElementById('btn-theme');
   if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
 
@@ -1086,6 +1095,7 @@ function checkAlerts(newDeals) {
 
 function addAlert(deal) {
   state.alertCount++;
+  state.unreadAlerts++;
   const alert = { deal, time: new Date() };
   state.alerts.unshift(alert);
   if (state.alerts.length > 100) state.alerts.pop();
@@ -1102,6 +1112,7 @@ function addAlert(deal) {
     state._bellTimeout = setTimeout(() => logoIcon.classList.remove('has-alerts'), 10000);
   }
 
+  updateAlertBadge();
   renderAlerts();
   document.getElementById('stat-alerts').textContent = state.alertCount;
 }
@@ -1109,11 +1120,29 @@ function addAlert(deal) {
 function clearAlerts() {
   state.alerts = [];
   state.alertCount = 0;
+  state.unreadAlerts = 0;
   document.getElementById('stat-alerts').textContent = '0';
+  updateAlertBadge();
   // F-29: Stop bell pulse
   document.querySelector('.logo-icon')?.classList.remove('has-alerts');
   clearTimeout(state._bellTimeout);
   renderAlerts();
+}
+
+// Update the red badge counter on the bell icon
+function updateAlertBadge() {
+  const badge = document.getElementById('alert-badge');
+  if (!badge) return;
+  if (state.unreadAlerts > 0) {
+    badge.textContent = state.unreadAlerts > 99 ? '99+' : state.unreadAlerts;
+    badge.classList.add('visible');
+    // Re-trigger pop animation
+    badge.style.animation = 'none';
+    badge.offsetHeight; // force reflow
+    badge.style.animation = '';
+  } else {
+    badge.classList.remove('visible');
+  }
 }
 
 // PERF-04: Reuse AudioContext instead of creating one per alert

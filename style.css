@@ -43,9 +43,12 @@ input,select{font-family:inherit}
 .app-header{display:flex;align-items:center;justify-content:space-between;padding:10px 0;margin-bottom:14px;flex-wrap:wrap;gap:10px}
 .header-left{display:flex;align-items:center;gap:16px}
 .logo-container{display:flex;align-items:center;gap:14px}
-.logo-icon{width:44px;height:44px;background:linear-gradient(135deg,var(--accent),#a855f7);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;color:#fff}
+.logo-icon{width:44px;height:44px;background:linear-gradient(135deg,var(--accent),#a855f7);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;color:#fff;position:relative;cursor:pointer}
 .logo-icon.has-alerts{animation:pulse-glow 3s ease-in-out infinite}
 .logo-icon svg{width:24px;height:24px}
+.alert-badge{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;background:#ef4444;color:#fff;font-size:0.65rem;font-weight:700;border-radius:9px;display:none;align-items:center;justify-content:center;padding:0 5px;box-shadow:0 2px 6px rgba(239,68,68,0.5);border:2px solid var(--bg-primary);line-height:1;animation:badge-pop 0.3s cubic-bezier(0.175,0.885,0.32,1.275)}
+.alert-badge.visible{display:flex}
+@keyframes badge-pop{0%{transform:scale(0)}100%{transform:scale(1)}}
 @keyframes pulse-glow{0%,100%{box-shadow:0 0 12px var(--accent-glow)}50%{box-shadow:0 0 24px var(--accent-glow),0 0 48px rgba(99,102,241,0.1)}}
 .logo-text h1{font-size:1.5rem;font-weight:800;letter-spacing:-0.5px;line-height:1.2}
 .logo-text .accent{background:linear-gradient(135deg,var(--accent-light),#c084fc);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
