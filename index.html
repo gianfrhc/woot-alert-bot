@@ -492,27 +492,6 @@
                     <input type="text" id="search-input" placeholder="Search deals..." aria-label="Search deals">
                     <button class="search-clear" id="search-clear" style="display:none" title="Clear search" aria-label="Clear search">✕</button>
                 </div>
-                <div class="filter-chips">
-                    <button class="filter-chip active" data-filter="all">All</button>
-                    <button class="filter-chip" data-filter="hot">🔥 Hot (≥60%)</button>
-                    <button class="filter-chip" data-filter="great">⭐ Great (≥40%)</button>
-                    <button class="filter-chip" data-filter="new">🆕 New</button>
-                    <button class="filter-chip" data-filter="ending">⏰ Ending Soon</button>
-                    <button class="filter-chip" data-filter="warehouse">🏭 Warehouse</button>
-                    <button class="filter-chip" data-filter="favorites">💖 Favorites</button>
-                    <button class="filter-chip" data-filter="electronics">🔌 Electronics</button>
-                    <button class="filter-chip" data-filter="computers">💻 Computers</button>
-                    <button class="filter-chip" data-filter="clearance">🏷️ Clearance</button>
-                </div>
-                <span class="deals-count" id="deals-count"></span>
-                <div class="sort-dropdown">
-                    <select id="sort-select" class="select-input-small" aria-label="Sort deals by">
-                        <option value="discount-desc">Highest Discount</option>
-                        <option value="price-asc">Lowest Price</option>
-                        <option value="price-desc">Highest Price</option>
-                        <option value="newest" selected>Newest First</option>
-                    </select>
-                </div>
                 <button class="btn btn-icon btn-view-toggle" id="btn-view-toggle" title="Toggle Grid/List View">
                     <svg class="icon-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                     <svg class="icon-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
@@ -526,15 +505,35 @@
                         <button class="export-opt" data-format="json">📋 Export JSON</button>
                     </div>
                 </div>
-            </div>
-
-            <!-- Keyword Filter Buttons -->
-            <div class="keyword-filter-bar" id="keyword-filter-bar" style="display:none;">
-                <div class="keyword-filter-label">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                    Keywords:
+                <div class="sort-dropdown">
+                    <select id="sort-select" class="select-input-small" aria-label="Sort deals by">
+                        <option value="discount-desc">Highest Discount</option>
+                        <option value="price-asc">Lowest Price</option>
+                        <option value="price-desc">Highest Price</option>
+                        <option value="newest" selected>Newest First</option>
+                    </select>
                 </div>
-                <div class="keyword-buttons" id="keyword-buttons-main"></div>
+                <span class="deals-count" id="deals-count"></span>
+                <div class="filter-chips">
+                    <button class="filter-chip active" data-filter="all">All</button>
+                    <button class="filter-chip" data-filter="hot">🔥 Hot (≥60%)</button>
+                    <button class="filter-chip" data-filter="great">⭐ Great (≥40%)</button>
+                    <button class="filter-chip" data-filter="new">🆕 New</button>
+                    <button class="filter-chip" data-filter="ending">⏰ Ending Soon</button>
+                    <button class="filter-chip" data-filter="warehouse">🏭 Warehouse</button>
+                    <button class="filter-chip" data-filter="favorites">💖 Favorites</button>
+                    <button class="filter-chip" data-filter="electronics">🔌 Electronics</button>
+                    <button class="filter-chip" data-filter="computers">💻 Computers</button>
+                    <button class="filter-chip" data-filter="clearance">🏷️ Clearance</button>
+                </div>
+                <!-- Keyword Filter Buttons (inline) -->
+                <div class="keyword-filter-bar" id="keyword-filter-bar" style="display:none;">
+                    <div class="keyword-filter-label">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                        Keywords:
+                    </div>
+                    <div class="keyword-buttons" id="keyword-buttons-main"></div>
+                </div>
             </div>
 
             <!-- Dynamic Tag Filter Bar -->
