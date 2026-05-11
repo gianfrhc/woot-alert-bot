@@ -206,11 +206,27 @@ const MIME = {
   '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.wav': 'audio/wav', '.webp': 'image/webp'
 };
 
+// In-memory settings cache with automatic invalidation on save
+let _settingsCache = null;
+let _settingsCacheTime = 0;
+
 function loadSettings() {
+  // Return cached settings if available
+  if (_settingsCache !== null) return _settingsCache;
   try {
-    if (fs.existsSync(SETTINGS_FILE)) return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+    if (fs.existsSync(SETTINGS_FILE)) {
+      _settingsCache = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+      _settingsCacheTime = Date.now();
+      return _settingsCache;
+    }
   } catch (e) { console.error('[Settings] Load error:', e.message); }
   return null;
+}
+
+// Force-reload settings from disk (for emergency use)
+function invalidateSettingsCache() {
+  _settingsCache = null;
+  _settingsCacheTime = 0;
 }
 
 // DATA-03: Basic schema validation for settings
@@ -252,6 +268,10 @@ function validateSettings(data) {
 
 function saveSettingsFile(data) {
   atomicWriteJSON(SETTINGS_FILE, data);
+  // Invalidate cache → next loadSettings() will re-read from disk
+  _settingsCache = data; // Or set directly since we just wrote it
+  _settingsCacheTime = Date.now();
+  console.log(`  💾 Settings saved & cache updated (${_settingsCacheTime})`);
 }
 
 // In-memory caches (HIGH-04/HIGH-05: avoid readFileSync on every request)
