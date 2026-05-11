@@ -453,18 +453,18 @@ body.list-mode .btn-view-toggle .icon-grid{opacity:1}
   /* Hide secondary header icons on mobile */
   .header-right .btn-icon.mobile-hide{display:none}
 
-  /* Stats: single horizontal scroll row */
-  .stats-bar{display:flex;gap:6px;margin-bottom:6px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
-  .stats-bar::-webkit-scrollbar{display:none}
-  .stat-card{padding:6px 10px;gap:6px;min-width:0;flex:1 0 auto;border-radius:8px}
-  .stat-icon{width:24px;height:24px;border-radius:6px;flex-shrink:0}
-  .stat-icon svg{width:12px;height:12px}
-  .stat-value{font-size:0.9rem;line-height:1.1}
-  .stat-label{font-size:0.55rem;margin-top:1px}
+  /* Stats: 3 visible + scroll for 4th */
+  .stats-bar{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:4px}
+  .stat-card{padding:6px 8px;gap:4px;border-radius:8px;overflow:hidden}
+  .stat-icon{width:22px;height:22px;border-radius:5px;flex-shrink:0}
+  .stat-icon svg{width:11px;height:11px}
+  .stat-value{font-size:0.85rem;line-height:1.1}
+  .stat-label{font-size:0.5rem;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .stat-card:nth-child(4){display:none}
 
   /* Alerts: tighter */
-  .alerts-section{margin-bottom:6px}
-  .section-header{margin-bottom:6px}
+  .alerts-section{margin-bottom:4px}
+  .section-header{margin-bottom:4px}
   .section-header h2{font-size:0.85rem}
   .alerts-feed{max-height:140px;gap:4px}
   .alert-item{padding:6px 10px;gap:8px}
@@ -474,20 +474,23 @@ body.list-mode .btn-view-toggle .icon-grid{opacity:1}
   .alert-detail{font-size:0.65rem}
   .alert-time{font-size:0.6rem}
 
-  /* Filter bar: compact single row */
-  .filter-bar{gap:4px;margin-bottom:6px}
-  .search-box{min-width:unset;max-width:unset;flex:1;padding:6px 8px;border-radius:6px}
+  /* Filter bar: wrap properly */
+  .filter-bar{gap:4px;margin-bottom:4px;flex-wrap:wrap}
+  .search-box{min-width:0;max-width:unset;flex:1 1 120px;padding:6px 8px;border-radius:6px;order:1}
   .search-box svg{width:14px;height:14px}
   .search-box input{font-size:0.75rem}
+  .btn-view-toggle{order:2;width:30px;height:30px}
+  .export-dropdown{order:3}
+  .export-dropdown .btn-icon{width:30px;height:30px}
+  .sort-dropdown{order:4;margin-left:0;flex:1 1 auto}
+  .select-input-small{padding:5px 6px;font-size:0.7rem;width:100%}
+  .deals-count{order:5;margin-left:auto;padding-left:0;border-left:none;font-size:0.62rem;flex-shrink:0}
   .filter-chips{gap:4px;width:100%;order:10;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:1px}
   .filter-chips::-webkit-scrollbar{display:none}
   .filter-chip{padding:4px 8px;font-size:0.65rem;flex-shrink:0;border-radius:12px}
-  .deals-count{margin-left:0;padding-left:0;border-left:none;font-size:0.65rem;order:5}
-  .sort-dropdown{margin-left:0;order:4}
-  .select-input-small{padding:6px 8px;font-size:0.72rem}
 
   /* Keywords & Tags: compact horizontal scroll */
-  .keyword-filter-bar,.category-filter-bar{padding:4px 10px;gap:5px;margin-bottom:5px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;border-radius:8px}
+  .keyword-filter-bar,.category-filter-bar{padding:4px 10px;gap:5px;margin-bottom:4px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;border-radius:8px}
   .keyword-filter-label,.category-filter-label{font-size:0.65rem;flex-shrink:0;gap:4px}
   .keyword-filter-label svg,.category-filter-label svg{width:12px;height:12px}
   .keyword-buttons,.category-filter-buttons{overflow-x:auto;flex-wrap:nowrap;padding-bottom:1px;gap:4px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
