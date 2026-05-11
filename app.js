@@ -1532,7 +1532,9 @@ function renderDealCard(deal, i) {
       ${deal.isWootOff ? '<span class="badge badge-wootoff">⚡ Woot-Off!</span>' : ''}
       ${deal.isFeatured ? '<span class="badge badge-featured">★ Featured</span>' : ''}
     </div>
-    <img class="deal-image" src="${deal.photo}" alt="${escHtml(deal.title)}" ${i < 8 ? '' : 'loading="lazy"'} onerror="this.src='https://placehold.co/400x300/1a1a2e/333?text=No+Image'">
+    <div class="deal-image-wrap">
+      <img class="deal-image deal-image-lazy" src="${i < 6 ? deal.photo : 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27400%27 height=%27300%27%3E%3C/svg%3E'}" ${i >= 6 ? `data-src="${deal.photo}"` : ''} alt="${escHtml(deal.title)}" loading="lazy" onload="this.classList.add('loaded')" onerror="this.src='https://placehold.co/400x300/1a1a2e/333?text=No+Image';this.classList.add('loaded')">
+    </div>
     <div class="deal-body">
       <div class="deal-title"><a href="${deal.url}" target="_blank" rel="noopener">${deal._matchedTokens ? highlightMatches(escHtml(deal.title), deal._matchedTokens) : escHtml(deal.title)}</a></div>
       <div class="deal-condition">
@@ -1591,6 +1593,30 @@ function renderNextBatch(grid, count) {
   // Lazy-load sparklines for this batch
   const batchIds = deals.slice(start, end).map(d => d.id);
   if (batchIds.length > 0) fetchSparklines(batchIds);
+
+  // Lazy-load images with data-src
+  lazyLoadImages(grid);
+}
+
+// Image lazy loading via IntersectionObserver
+let _imgObserver = null;
+function lazyLoadImages(container) {
+  if (!_imgObserver) {
+    _imgObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const img = entry.target;
+          const src = img.dataset.src;
+          if (src) {
+            img.src = src;
+            img.removeAttribute('data-src');
+          }
+          _imgObserver.unobserve(img);
+        }
+      });
+    }, { rootMargin: '200px' });
+  }
+  container.querySelectorAll('img[data-src]').forEach(img => _imgObserver.observe(img));
 }
 
 // IntersectionObserver sentinel for infinite scroll
