@@ -1495,8 +1495,14 @@ function renderDeals() {
       ? `$${deal.salePrice.toFixed(2)} – $${deal.salePriceMax.toFixed(2)}`
       : `$${deal.salePrice.toFixed(2)}`;
 
+    // Discount tier class for dynamic card styling
+    const discountTier = deal.discount >= 80 ? 'discount-epic'
+      : deal.discount >= 60 ? 'discount-hot'
+      : deal.discount >= 40 ? 'discount-good'
+      : '';
+
     return `
-    <div class="deal-card ${isHot ? 'hot-deal' : ''} ${condClass} ${animClass} ${isNewDeal ? 'new-deal-pulse' : ''}" style="${!state.hasRenderedOnce ? 'animation-delay:'+Math.min(i*0.03,0.6)+'s' : ''}">
+    <div class="deal-card ${isHot ? 'hot-deal' : ''} ${discountTier} ${condClass} ${animClass} ${isNewDeal ? 'new-deal-pulse' : ''}" style="${!state.hasRenderedOnce ? 'animation-delay:'+Math.min(i*0.03,0.6)+'s' : ''}">
       <div class="deal-badges">
         ${deal.discount > 0 ? `<span class="badge ${deal.discount >= 60 ? 'badge-hot' : deal.discount >= 40 ? 'badge-discount' : 'badge-mild'}">${deal.discount}% OFF</span>` : ''}
         ${deal.isSoldOut ? '<span class="badge badge-soldout">Sold Out</span>' : ''}
