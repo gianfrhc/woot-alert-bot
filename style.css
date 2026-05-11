@@ -439,10 +439,10 @@ body.list-mode .btn-view-toggle .icon-grid{opacity:1}
   .filter-chips{order:3;width:100%}
 }
 @media(max-width:768px){
-  .app-wrapper{padding:4px 10px 72px}
+  .app-wrapper{padding:0 8px 72px}
 
-  /* Header: ultra compact */
-  .app-header{padding:6px 0;margin-bottom:2px;gap:4px}
+  /* Header: zero dead space */
+  .app-header{padding:6px 0 4px;margin-bottom:0;gap:4px}
   .logo-icon{width:30px;height:30px;border-radius:7px}
   .logo-icon svg{width:16px;height:16px}
   .logo-text h1{font-size:1.05rem}
