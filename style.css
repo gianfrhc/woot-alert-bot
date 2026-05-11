@@ -465,14 +465,13 @@ body.list-mode .btn-view-toggle .icon-grid{opacity:1}
   /* Hide secondary header icons on mobile */
   .header-right .btn-icon.mobile-hide{display:none}
 
-  /* Stats: 3 visible + scroll for 4th */
-  .stats-bar{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:4px}
-  .stat-card{padding:6px 8px;gap:4px;border-radius:8px;overflow:hidden}
-  .stat-icon{width:22px;height:22px;border-radius:5px;flex-shrink:0}
-  .stat-icon svg{width:11px;height:11px}
-  .stat-value{font-size:0.85rem;line-height:1.1}
-  .stat-label{font-size:0.5rem;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .stat-card:nth-child(4){display:none}
+  /* Stats: all 4 visible */
+  .stats-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:4px}
+  .stat-card{padding:5px 6px;gap:3px;border-radius:8px;overflow:hidden}
+  .stat-icon{width:20px;height:20px;border-radius:5px;flex-shrink:0}
+  .stat-icon svg{width:10px;height:10px}
+  .stat-value{font-size:0.8rem;line-height:1.1}
+  .stat-label{font-size:0.45rem;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
   /* Alerts: tighter */
   .alerts-section{margin-bottom:4px}
