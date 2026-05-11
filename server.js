@@ -1549,10 +1549,11 @@ function scannerStart(coldStart = false) {
   console.log(`  ⏱️  Scanner interval: every ${scanner.intervalSec}s`);
 
   // Only do immediate scan on cold start (server boot)
+  // Delay 15s to avoid 429 if previous container was just scanning
   if (coldStart) {
     setTimeout(() => {
       scannerDoScan().catch(e => console.error('[Scanner] Initial scan error:', e));
-    }, 2000);
+    }, 15000);
   }
 
   // Recurring scans
