@@ -291,7 +291,11 @@ function loadNtfyLogs() {
 }
 
 function saveNtfyLogs(logs) {
-  _ntfyLogsCache = logs.slice(0, 500);
+  const MAX_NTFY_LOGS = 500;
+  if (logs.length > MAX_NTFY_LOGS) {
+    console.log(`  📜 Log rotation: trimming ntfy logs from ${logs.length} → ${MAX_NTFY_LOGS}`);
+  }
+  _ntfyLogsCache = logs.slice(0, MAX_NTFY_LOGS);
   atomicWriteJSON(NTFY_LOGS_FILE, _ntfyLogsCache);
 }
 
@@ -1574,6 +1578,11 @@ server.listen(PORT, '0.0.0.0', () => {
   scannerInitSeenIds();
   loadPriceHistory();
   scannerStart(true);
+
+  // Start daily backup timer
+  runDailyBackup(); // Initial backup on boot
+  setInterval(runDailyBackup, 24 * 60 * 60 * 1000); // Every 24h
+  console.log(`  💾 Daily backups: enabled (every 24h)`);
 });
 
 function getLocalIP() {
@@ -1604,3 +1613,85 @@ function gracefulShutdown(signal) {
 }
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// ===== LOG ROTATION =====
+// Rotate price history: cap entries per deal to prevent unbounded growth
+const MAX_PRICE_POINTS_PER_DEAL = 30;
+function rotatePriceHistory() {
+  let rotated = 0;
+  for (const id in priceHistory) {
+    if (priceHistory[id].length > MAX_PRICE_POINTS_PER_DEAL) {
+      priceHistory[id] = priceHistory[id].slice(-MAX_PRICE_POINTS_PER_DEAL);
+      rotated++;
+    }
+  }
+  if (rotated > 0) console.log(`  📜 Price history rotation: trimmed ${rotated} deals to ${MAX_PRICE_POINTS_PER_DEAL} points`);
+}
+
+// ===== AUTOMATED DAILY BACKUPS =====
+const BACKUP_DIR = path.join(__dirname, 'backups');
+const MAX_BACKUPS = 7; // Keep last 7 days
+
+function runDailyBackup() {
+  try {
+    // Rotate price history before backup
+    rotatePriceHistory();
+
+    // Ensure backup directory exists
+    if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+
+    const dateStamp = new Date().toISOString().slice(0, 10); // 2026-05-10
+    const filesToBackup = [
+      { src: FAVORITES_FILE, name: `favorites-${dateStamp}.json` },
+      { src: PRICE_HISTORY_FILE, name: `price-history-${dateStamp}.json` },
+      { src: SETTINGS_FILE, name: `settings-${dateStamp}.json` },
+      { src: SEEN_IDS_FILE, name: `seen-ids-${dateStamp}.json` }
+    ];
+
+    let backed = 0;
+    for (const f of filesToBackup) {
+      if (fs.existsSync(f.src)) {
+        const dest = path.join(BACKUP_DIR, f.name);
+        fs.copyFileSync(f.src, dest);
+        backed++;
+      }
+    }
+
+    // Prune old backups (keep only MAX_BACKUPS days)
+    pruneOldBackups();
+
+    console.log(`  💾 Daily backup: ${backed} files archived to backups/${dateStamp}`);
+  } catch (e) {
+    console.error('[Backup] Error:', e.message);
+  }
+}
+
+function pruneOldBackups() {
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) return;
+    const files = fs.readdirSync(BACKUP_DIR);
+    // Group by date
+    const dates = new Set();
+    files.forEach(f => {
+      const match = f.match(/(\d{4}-\d{2}-\d{2})\.json$/);
+      if (match) dates.add(match[1]);
+    });
+
+    const sortedDates = [...dates].sort().reverse(); // newest first
+    if (sortedDates.length <= MAX_BACKUPS) return;
+
+    const toDelete = sortedDates.slice(MAX_BACKUPS);
+    let deleted = 0;
+    for (const date of toDelete) {
+      files.filter(f => f.includes(date)).forEach(f => {
+        try {
+          fs.unlinkSync(path.join(BACKUP_DIR, f));
+          deleted++;
+        } catch (e) { /* ignore */ }
+      });
+    }
+    if (deleted > 0) console.log(`  🗑️  Pruned ${deleted} old backup files (keeping ${MAX_BACKUPS} days)`);
+  } catch (e) {
+    console.error('[Backup] Prune error:', e.message);
+  }
+}

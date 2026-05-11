@@ -17,6 +17,7 @@ seen-ids.json
 # User data files — never commit
 favorites.json
 price-history.json
+backups/
 
 # Atomic write temp files
 *.tmp
