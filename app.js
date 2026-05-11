@@ -1448,108 +1448,169 @@ function renderDeals() {
   const availableTotal = state.deals.filter(d => !d.isSoldOut).length;
   if (countEl) countEl.textContent = `${filtered.length} of ${availableTotal} deals`;
 
-  grid.innerHTML = filtered.map((deal, i) => {
-    const isHot = deal.discount >= 50;
-    const endMs = deal._endMs || (deal.endDate ? new Date(deal.endDate).getTime() : null);
-    const isEnding = endMs && (endMs - Date.now()) < 4*3600000;
-    const hoursLeft = endMs ? Math.max(0, Math.round((endMs - Date.now()) / 3600000)) : null;
-    const msLeft = endMs ? Math.max(0, endMs - Date.now()) : null;
-    const timeLeftText = hoursLeft !== null ? formatTimeLeft(hoursLeft) : '';
-    const catLabel = deal.primaryCategory || '';
-    const conditionLabel = deal.condition || '';
-    const animClass = !state.hasRenderedOnce ? 'animate-in' : '';
+  // === VIRTUAL SCROLLING: Batch rendering ===
+  const BATCH_SIZE = 40;
+  state._filteredDeals = filtered; // Store for batch loading
+  state._renderedCount = 0;
 
-    // Condition class for color-coded left border
-    const condLow = conditionLabel.toLowerCase();
-    const condClass = condLow.includes('new') && !condLow.includes('recondition') && !condLow.includes('refurb') ? 'cond-new'
-      : condLow.includes('open box') ? 'cond-openbox'
-      : condLow.includes('refurb') ? 'cond-refurbished'
-      : condLow.includes('recondition') || condLow.includes('factory') ? 'cond-reconditioned'
-      : '';
+  // Clear grid and render first batch
+  grid.innerHTML = '';
+  renderNextBatch(grid, BATCH_SIZE);
 
-    // Category class for color badges
-    const catLow = catLabel.toLowerCase();
-    const url = (deal.url || '').toLowerCase();
-    const catClass = url.includes('electronics.woot.com') || catLow.includes('electronics') ? 'cat-electronics'
-      : url.includes('computers.woot.com') || catLow.includes('computer') ? 'cat-computers'
-      : url.includes('sellout.woot.com') || catLow.includes('clearance') ? 'cat-clearance'
-      : catLow.includes('warehouse') ? 'cat-warehouse'
-      : url.includes('home.woot.com') || catLow.includes('home') ? 'cat-home'
-      : url.includes('tools.woot.com') || catLow.includes('tools') ? 'cat-tools'
-      : url.includes('sport.woot.com') || catLow.includes('sport') ? 'cat-sport'
-      : '';
-
-    // Timer gradient class
-    const timeClass = msLeft === null ? ''
-      : msLeft < 3600000 ? 'time-critical'     // <1h → red blinking
-      : msLeft < 24*3600000 ? 'time-urgent'     // <24h → red
-      : msLeft < 72*3600000 ? 'time-warning'    // <3d → yellow
-      : 'time-safe';                             // >3d → green
-
-    // New deal pulse: if deal appeared in the last 2 minutes
-    const dealAge = Date.now() - new Date(deal.startDate).getTime();
-    const isNewDeal = state.hasRenderedOnce && dealAge < 120000;
-
-    // Format price range
-    const priceRange = deal.salePriceMax > deal.salePrice
-      ? `$${deal.salePrice.toFixed(2)} – $${deal.salePriceMax.toFixed(2)}`
-      : `$${deal.salePrice.toFixed(2)}`;
-
-    // Discount tier class for dynamic card styling
-    const discountTier = deal.discount >= 80 ? 'discount-epic'
-      : deal.discount >= 60 ? 'discount-hot'
-      : deal.discount >= 40 ? 'discount-good'
-      : '';
-
-    return `
-    <div class="deal-card ${isHot ? 'hot-deal' : ''} ${discountTier} ${condClass} ${animClass} ${isNewDeal ? 'new-deal-pulse' : ''}" style="${!state.hasRenderedOnce ? 'animation-delay:'+Math.min(i*0.03,0.6)+'s' : ''}">
-      <div class="deal-badges">
-        ${deal.discount > 0 ? `<span class="badge ${deal.discount >= 60 ? 'badge-hot' : deal.discount >= 40 ? 'badge-discount' : 'badge-mild'}">${deal.discount}% OFF</span>` : ''}
-        ${deal.isSoldOut ? '<span class="badge badge-soldout">Sold Out</span>' : ''}
-        ${isEnding && !deal.isSoldOut ? '<span class="badge badge-ending">⏰ Ending Soon</span>' : ''}
-        ${deal.isWootOff ? '<span class="badge badge-wootoff">⚡ Woot-Off!</span>' : ''}
-        ${deal.isFeatured ? '<span class="badge badge-featured">★ Featured</span>' : ''}
-      </div>
-      <img class="deal-image" src="${deal.photo}" alt="${escHtml(deal.title)}" ${i < 8 ? '' : 'loading="lazy"'} onerror="this.src='https://placehold.co/400x300/1a1a2e/333?text=No+Image'">
-      <div class="deal-body">
-        <div class="deal-title"><a href="${deal.url}" target="_blank" rel="noopener">${escHtml(deal.title)}</a></div>
-        <div class="deal-condition">
-          ${conditionLabel ? `<span class="condition-tag ${condClass}">${escHtml(conditionLabel)}</span>` : ''}
-          ${catLabel ? `<span class="category-tag ${catClass}">${escHtml(catLabel)}</span>` : ''}
-        </div>
-        <div class="deal-pricing">
-          <span class="deal-sale-price">${priceRange}</span>
-          ${deal.listPrice > 0 ? `<span class="deal-list-price">$${deal.listPrice.toFixed(2)}</span>` : ''}
-          ${deal.discount > 0 ? `<span class="deal-savings">Save $${(deal.listPrice - deal.salePrice).toFixed(2)}</span>` : ''}
-        </div>
-        <div class="sparkline-slot" data-deal-id="${deal.id}"></div>
-      </div>
-      <div class="deal-footer">
-        <span class="deal-meta ${timeClass}">${timeLeftText}</span>
-        <div class="deal-actions">
-          <button class="deal-fav ${state.favorites.has(deal.id) ? 'active' : ''}" data-deal-id="${deal.id}" title="${state.favorites.has(deal.id) ? 'Remove from favorites' : 'Add to favorites'}" aria-label="Toggle favorite">${state.favorites.has(deal.id) ? '💖' : '🤍'}</button>
-          ${deal.forumUrl ? `<a href="${deal.forumUrl}" target="_blank" rel="noopener" class="deal-forum" title="Forum Discussion">💬</a>` : ''}
-          <a href="${deal.url}" target="_blank" rel="noopener" class="deal-cta" aria-label="View deal: ${escHtml(deal.title)} at ${priceRange}">View Deal →</a>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
-
-  // Event delegation for favorite buttons
-  grid.querySelectorAll('.deal-fav').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleFavorite(btn.dataset.dealId);
-    });
-  });
-
-  // Lazy-load sparklines for visible deals
-  const visibleIds = filtered.slice(0, 30).map(d => d.id);
-  if (visibleIds.length > 0) fetchSparklines(visibleIds);
+  // Setup IntersectionObserver sentinel for infinite scroll
+  setupScrollSentinel(grid);
 
   // Update dynamic category filter bar
   renderCategoryFilterBar();
 }
+
+// Render a single deal card HTML
+function renderDealCard(deal, i) {
+  const isHot = deal.discount >= 50;
+  const endMs = deal._endMs || (deal.endDate ? new Date(deal.endDate).getTime() : null);
+  const isEnding = endMs && (endMs - Date.now()) < 4*3600000;
+  const hoursLeft = endMs ? Math.max(0, Math.round((endMs - Date.now()) / 3600000)) : null;
+  const msLeft = endMs ? Math.max(0, endMs - Date.now()) : null;
+  const timeLeftText = hoursLeft !== null ? formatTimeLeft(hoursLeft) : '';
+  const catLabel = deal.primaryCategory || '';
+  const conditionLabel = deal.condition || '';
+  const animClass = !state.hasRenderedOnce ? 'animate-in' : '';
+
+  const condLow = conditionLabel.toLowerCase();
+  const condClass = condLow.includes('new') && !condLow.includes('recondition') && !condLow.includes('refurb') ? 'cond-new'
+    : condLow.includes('open box') ? 'cond-openbox'
+    : condLow.includes('refurb') ? 'cond-refurbished'
+    : condLow.includes('recondition') || condLow.includes('factory') ? 'cond-reconditioned'
+    : '';
+
+  const catLow = catLabel.toLowerCase();
+  const url = (deal.url || '').toLowerCase();
+  const catClass = url.includes('electronics.woot.com') || catLow.includes('electronics') ? 'cat-electronics'
+    : url.includes('computers.woot.com') || catLow.includes('computer') ? 'cat-computers'
+    : url.includes('sellout.woot.com') || catLow.includes('clearance') ? 'cat-clearance'
+    : catLow.includes('warehouse') ? 'cat-warehouse'
+    : url.includes('home.woot.com') || catLow.includes('home') ? 'cat-home'
+    : url.includes('tools.woot.com') || catLow.includes('tools') ? 'cat-tools'
+    : url.includes('sport.woot.com') || catLow.includes('sport') ? 'cat-sport'
+    : '';
+
+  const timeClass = msLeft === null ? ''
+    : msLeft < 3600000 ? 'time-critical'
+    : msLeft < 24*3600000 ? 'time-urgent'
+    : msLeft < 72*3600000 ? 'time-warning'
+    : 'time-safe';
+
+  const dealAge = Date.now() - new Date(deal.startDate).getTime();
+  const isNewDeal = state.hasRenderedOnce && dealAge < 120000;
+
+  const priceRange = deal.salePriceMax > deal.salePrice
+    ? `$${deal.salePrice.toFixed(2)} – $${deal.salePriceMax.toFixed(2)}`
+    : `$${deal.salePrice.toFixed(2)}`;
+
+  const discountTier = deal.discount >= 80 ? 'discount-epic'
+    : deal.discount >= 60 ? 'discount-hot'
+    : deal.discount >= 40 ? 'discount-good'
+    : '';
+
+  return `
+  <div class="deal-card ${isHot ? 'hot-deal' : ''} ${discountTier} ${condClass} ${animClass} ${isNewDeal ? 'new-deal-pulse' : ''}" style="${!state.hasRenderedOnce ? 'animation-delay:'+Math.min(i*0.03,0.6)+'s' : ''}">
+    <div class="deal-badges">
+      ${deal.discount > 0 ? `<span class="badge ${deal.discount >= 60 ? 'badge-hot' : deal.discount >= 40 ? 'badge-discount' : 'badge-mild'}">${deal.discount}% OFF</span>` : ''}
+      ${deal.isSoldOut ? '<span class="badge badge-soldout">Sold Out</span>' : ''}
+      ${isEnding && !deal.isSoldOut ? '<span class="badge badge-ending">⏰ Ending Soon</span>' : ''}
+      ${deal.isWootOff ? '<span class="badge badge-wootoff">⚡ Woot-Off!</span>' : ''}
+      ${deal.isFeatured ? '<span class="badge badge-featured">★ Featured</span>' : ''}
+    </div>
+    <img class="deal-image" src="${deal.photo}" alt="${escHtml(deal.title)}" ${i < 8 ? '' : 'loading="lazy"'} onerror="this.src='https://placehold.co/400x300/1a1a2e/333?text=No+Image'">
+    <div class="deal-body">
+      <div class="deal-title"><a href="${deal.url}" target="_blank" rel="noopener">${escHtml(deal.title)}</a></div>
+      <div class="deal-condition">
+        ${conditionLabel ? `<span class="condition-tag ${condClass}">${escHtml(conditionLabel)}</span>` : ''}
+        ${catLabel ? `<span class="category-tag ${catClass}">${escHtml(catLabel)}</span>` : ''}
+      </div>
+      <div class="deal-pricing">
+        <span class="deal-sale-price">${priceRange}</span>
+        ${deal.listPrice > 0 ? `<span class="deal-list-price">$${deal.listPrice.toFixed(2)}</span>` : ''}
+        ${deal.discount > 0 ? `<span class="deal-savings">Save $${(deal.listPrice - deal.salePrice).toFixed(2)}</span>` : ''}
+      </div>
+      <div class="sparkline-slot" data-deal-id="${deal.id}"></div>
+    </div>
+    <div class="deal-footer">
+      <span class="deal-meta ${timeClass}">${timeLeftText}</span>
+      <div class="deal-actions">
+        <button class="deal-fav ${state.favorites.has(deal.id) ? 'active' : ''}" data-deal-id="${deal.id}" title="${state.favorites.has(deal.id) ? 'Remove from favorites' : 'Add to favorites'}" aria-label="Toggle favorite">${state.favorites.has(deal.id) ? '💖' : '🤍'}</button>
+        ${deal.forumUrl ? `<a href="${deal.forumUrl}" target="_blank" rel="noopener" class="deal-forum" title="Forum Discussion">💬</a>` : ''}
+        <a href="${deal.url}" target="_blank" rel="noopener" class="deal-cta" aria-label="View deal: ${escHtml(deal.title)} at ${priceRange}">View Deal →</a>
+      </div>
+    </div>
+  </div>`;
+}
+
+// Render next batch of deal cards
+function renderNextBatch(grid, count) {
+  const deals = state._filteredDeals;
+  if (!deals || state._renderedCount >= deals.length) return;
+
+  const start = state._renderedCount;
+  const end = Math.min(start + count, deals.length);
+  const fragment = document.createDocumentFragment();
+
+  for (let i = start; i < end; i++) {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = renderDealCard(deals[i], i);
+    const card = wrapper.firstElementChild;
+    // Bind favorite button
+    const favBtn = card.querySelector('.deal-fav');
+    if (favBtn) {
+      favBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleFavorite(favBtn.dataset.dealId);
+      });
+    }
+    fragment.appendChild(card);
+  }
+
+  // Remove old sentinel before appending
+  const oldSentinel = grid.querySelector('.scroll-sentinel');
+  if (oldSentinel) oldSentinel.remove();
+
+  grid.appendChild(fragment);
+  state._renderedCount = end;
+
+  // Lazy-load sparklines for this batch
+  const batchIds = deals.slice(start, end).map(d => d.id);
+  if (batchIds.length > 0) fetchSparklines(batchIds);
+}
+
+// IntersectionObserver sentinel for infinite scroll
+let _scrollObserver = null;
+function setupScrollSentinel(grid) {
+  // Cleanup previous observer
+  if (_scrollObserver) _scrollObserver.disconnect();
+
+  const deals = state._filteredDeals;
+  if (!deals || state._renderedCount >= deals.length) return;
+
+  // Create sentinel element
+  const sentinel = document.createElement('div');
+  sentinel.className = 'scroll-sentinel';
+  sentinel.innerHTML = `<div class="scroll-sentinel-inner">
+    <div class="sentinel-spinner"></div>
+    <span>Loading more deals… (${state._renderedCount}/${deals.length})</span>
+  </div>`;
+  grid.appendChild(sentinel);
+
+  _scrollObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && state._renderedCount < deals.length) {
+      renderNextBatch(grid, 40);
+      // Update or re-create sentinel
+      setupScrollSentinel(grid);
+    }
+  }, { rootMargin: '400px' });
+
+  _scrollObserver.observe(sentinel);
+}
+
 
 function toggleFavorite(dealId) {
   if (state.favorites.has(dealId)) {

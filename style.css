@@ -340,6 +340,12 @@ body.list-mode .btn-view-toggle .icon-grid{opacity:1}
 .alert-detail{font-size:0.72rem;color:var(--text-muted);margin-top:2px}
 .alert-time{font-size:0.68rem;color:var(--text-muted);white-space:nowrap}
 
+/* === SCROLL SENTINEL (infinite scroll) === */
+.scroll-sentinel{grid-column:1/-1;padding:20px 0}
+.scroll-sentinel-inner{display:flex;align-items:center;justify-content:center;gap:10px;color:var(--text-muted);font-size:0.8rem;font-weight:500}
+.sentinel-spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sentinelSpin 0.7s linear infinite}
+@keyframes sentinelSpin{to{transform:rotate(360deg)}}
+
 /* === LOADING === */
 /* === SKELETON LOADING === */
 .skeleton-grid{display:contents}
