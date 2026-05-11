@@ -481,9 +481,20 @@ function bindEvents() {
   });
 
   // Debounced search
-  document.getElementById('search-input').addEventListener('input', () => {
+  const searchInput = document.getElementById('search-input');
+  searchInput.addEventListener('input', () => {
     clearTimeout(state.searchTimeout);
-    state.searchTimeout = setTimeout(renderDeals, 200);
+    state.searchTimeout = setTimeout(renderDeals, 300);
+    // Show/hide clear button
+    const clearBtn = document.getElementById('search-clear');
+    if (clearBtn) clearBtn.style.display = searchInput.value ? 'flex' : 'none';
+  });
+  // Search clear button
+  const searchClear = document.getElementById('search-clear');
+  if (searchClear) searchClear.addEventListener('click', () => {
+    searchInput.value = '';
+    searchClear.style.display = 'none';
+    renderDeals();
   });
   document.getElementById('sort-select').addEventListener('change', () => renderDeals());
   document.querySelectorAll('.filter-chip').forEach(chip => {
@@ -1523,7 +1534,7 @@ function renderDealCard(deal, i) {
     </div>
     <img class="deal-image" src="${deal.photo}" alt="${escHtml(deal.title)}" ${i < 8 ? '' : 'loading="lazy"'} onerror="this.src='https://placehold.co/400x300/1a1a2e/333?text=No+Image'">
     <div class="deal-body">
-      <div class="deal-title"><a href="${deal.url}" target="_blank" rel="noopener">${escHtml(deal.title)}</a></div>
+      <div class="deal-title"><a href="${deal.url}" target="_blank" rel="noopener">${deal._matchedTokens ? highlightMatches(escHtml(deal.title), deal._matchedTokens) : escHtml(deal.title)}</a></div>
       <div class="deal-condition">
         ${conditionLabel ? `<span class="condition-tag ${condClass}">${escHtml(conditionLabel)}</span>` : ''}
         ${catLabel ? `<span class="category-tag ${catClass}">${escHtml(catLabel)}</span>` : ''}
@@ -1726,6 +1737,16 @@ function resetCountdown() {
 function escHtml(str) {
   if (!str) return '';
   return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+// Highlight matched search tokens in already-escaped text
+function highlightMatches(escapedText, tokens) {
+  if (!tokens || tokens.length === 0) return escapedText;
+  // Sort by length desc to match longest tokens first
+  const sorted = [...tokens].sort((a, b) => b.length - a.length);
+  const escaped = sorted.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const regex = new RegExp(`(${escaped.join('|')})`, 'gi');
+  return escapedText.replace(regex, '<mark class="search-highlight">$1</mark>');
 }
 
 function formatTimeLeft(hours) {
