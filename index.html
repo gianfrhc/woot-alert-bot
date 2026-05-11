@@ -524,6 +524,15 @@
                     <svg class="icon-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                     <svg class="icon-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
                 </button>
+                <div class="export-dropdown" id="export-dropdown">
+                    <button class="btn btn-icon" id="btn-export" title="Export Deals">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    </button>
+                    <div class="export-menu" id="export-menu">
+                        <button class="export-opt" data-format="csv">📊 Export CSV</button>
+                        <button class="export-opt" data-format="json">📋 Export JSON</button>
+                    </div>
+                </div>
             </div>
 
             <!-- Keyword Filter Buttons -->
@@ -583,6 +592,18 @@
     <button class="fab-top" id="fab-top" title="Back to Top">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
     </button>
+
+    <!-- Price History Modal -->
+    <div class="modal-overlay" id="price-modal" style="display:none">
+        <div class="price-modal-content">
+            <div class="price-modal-header">
+                <h3 id="price-modal-title">Price History</h3>
+                <button class="btn btn-icon" id="price-modal-close" title="Close">✕</button>
+            </div>
+            <div class="price-modal-chart" id="price-modal-chart"></div>
+            <div class="price-modal-stats" id="price-modal-stats"></div>
+        </div>
+    </div>
 
     <script src="app.js"></script>
     <script>

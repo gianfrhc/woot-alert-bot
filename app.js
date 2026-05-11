@@ -55,6 +55,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   connectSSE();
   initBackToTop();
   initPullToRefresh();
+  initExport();
+  initPriceModal();
 });
 
 // Back to Top FAB
@@ -1867,4 +1869,198 @@ async function fetchSparklines(dealIds) {
       }
     });
   } catch(e) {}
+}
+
+// ===== EXPORT =====
+function initExport() {
+  const dropdown = document.getElementById('export-dropdown');
+  const btn = document.getElementById('btn-export');
+  if (!btn || !dropdown) return;
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle('open');
+  });
+  document.addEventListener('click', () => dropdown.classList.remove('open'));
+
+  dropdown.querySelectorAll('.export-opt').forEach(opt => {
+    opt.addEventListener('click', () => {
+      const format = opt.dataset.format;
+      const deals = state._filteredDeals || state.deals;
+      if (!deals || deals.length === 0) return showToast('No deals to export', 'error');
+      if (format === 'csv') exportCSV(deals);
+      else exportJSON(deals);
+      dropdown.classList.remove('open');
+    });
+  });
+}
+
+function exportCSV(deals) {
+  const headers = ['Title','Price','List Price','Discount %','Condition','Category','URL','Start Date','End Date'];
+  const rows = deals.map(d => [
+    `"${(d.title || '').replace(/"/g, '""')}"`,
+    d.salePrice?.toFixed(2) || '',
+    d.listPrice?.toFixed(2) || '',
+    d.discount || 0,
+    `"${d.condition || ''}"`,
+    `"${d.primaryCategory || ''}"`,
+    d.url || '',
+    d.startDate || '',
+    d.endDate || ''
+  ].join(','));
+  const csv = [headers.join(','), ...rows].join('\n');
+  downloadFile(csv, `woot-deals-${new Date().toISOString().slice(0,10)}.csv`, 'text/csv');
+  showToast(`Exported ${deals.length} deals as CSV`, 'success');
+}
+
+function exportJSON(deals) {
+  const clean = deals.map(d => ({
+    title: d.title, price: d.salePrice, listPrice: d.listPrice,
+    discount: d.discount, condition: d.condition, category: d.primaryCategory,
+    url: d.url, photo: d.photo, startDate: d.startDate, endDate: d.endDate,
+    isSoldOut: d.isSoldOut, isWootOff: d.isWootOff
+  }));
+  downloadFile(JSON.stringify(clean, null, 2), `woot-deals-${new Date().toISOString().slice(0,10)}.json`, 'application/json');
+  showToast(`Exported ${deals.length} deals as JSON`, 'success');
+}
+
+function downloadFile(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ===== PRICE HISTORY MODAL =====
+function initPriceModal() {
+  const modal = document.getElementById('price-modal');
+  const closeBtn = document.getElementById('price-modal-close');
+  if (!modal) return;
+
+  closeBtn?.addEventListener('click', () => modal.style.display = 'none');
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') modal.style.display = 'none'; });
+
+  // Event delegation: click on sparkline to open modal
+  document.getElementById('deals-grid')?.addEventListener('click', (e) => {
+    const slot = e.target.closest('.sparkline-slot');
+    if (!slot) return;
+    const dealId = slot.dataset.dealId;
+    if (!dealId) return;
+    openPriceModal(dealId);
+  });
+}
+
+async function openPriceModal(dealId) {
+  const modal = document.getElementById('price-modal');
+  const title = document.getElementById('price-modal-title');
+  const chart = document.getElementById('price-modal-chart');
+  const stats = document.getElementById('price-modal-stats');
+
+  // Find deal
+  const deal = state.deals.find(d => d.id === dealId);
+  if (!deal) return;
+
+  title.textContent = deal.title?.substring(0, 60) || 'Price History';
+  chart.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div>';
+  stats.innerHTML = '';
+  modal.style.display = 'flex';
+
+  // Fetch history
+  try {
+    const res = await fetch(`/api/price-history?ids=${dealId}`);
+    const data = await res.json();
+    const points = data[dealId];
+
+    if (!points || points.length < 2) {
+      chart.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">📊 Not enough data points yet.<br><small>Prices are recorded each scan cycle.</small></div>';
+      return;
+    }
+
+    // Render expanded chart
+    const prices = points.map(p => p.p);
+    const times = points.map(p => new Date(p.t));
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    const range = max - min || 1;
+    const w = 560, h = 180, padX = 36, padY = 20;
+    const chartW = w - padX * 2, chartH = h - padY * 2;
+
+    const coords = prices.map((p, i) => {
+      const x = padX + (i / (prices.length - 1)) * chartW;
+      const y = padY + (1 - (p - min) / range) * chartH;
+      return [x, y];
+    });
+
+    const last = prices[prices.length - 1];
+    const first = prices[0];
+    const color = last <= first ? 'var(--success)' : 'var(--danger)';
+    const polyPoints = coords.map(c => `${c[0].toFixed(1)},${c[1].toFixed(1)}`).join(' ');
+    const areaPoints = polyPoints + ` ${padX + chartW},${padY + chartH} ${padX},${padY + chartH}`;
+
+    // Grid lines
+    const gridLines = [0, 0.25, 0.5, 0.75, 1].map(pct => {
+      const y = padY + pct * chartH;
+      const val = max - pct * range;
+      return `<line x1="${padX}" y1="${y}" x2="${padX + chartW}" y2="${y}" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="4"/>
+        <text x="${padX - 4}" y="${y + 3}" fill="var(--text-muted)" font-size="9" text-anchor="end">$${val.toFixed(0)}</text>`;
+    }).join('');
+
+    // Dots with hover
+    const dots = coords.map((c, i) => 
+      `<circle cx="${c[0].toFixed(1)}" cy="${c[1].toFixed(1)}" r="3" fill="${color}" opacity="0.7">
+        <title>$${prices[i].toFixed(2)} — ${times[i].toLocaleDateString()}</title>
+      </circle>`
+    ).join('');
+
+    const firstDate = times[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const lastDate = times[times.length - 1].toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+    chart.innerHTML = `
+      <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet">
+        ${gridLines}
+        <polygon points="${areaPoints}" fill="${color}" opacity="0.1"/>
+        <polyline points="${polyPoints}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        ${dots}
+      </svg>
+      <div class="price-chart-dates"><span>${firstDate}</span><span>${lastDate}</span></div>`;
+
+    // Stats
+    const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+    const change = last - first;
+    const changePct = ((change / first) * 100).toFixed(1);
+    const changeClass = change < 0 ? 'price-down' : change > 0 ? 'price-up' : 'price-neutral';
+    const changeSign = change > 0 ? '+' : '';
+
+    stats.innerHTML = `
+      <div class="price-stat">
+        <div class="price-stat-label">Lowest</div>
+        <div class="price-stat-value price-down">$${min.toFixed(2)}</div>
+      </div>
+      <div class="price-stat">
+        <div class="price-stat-label">Highest</div>
+        <div class="price-stat-value price-up">$${max.toFixed(2)}</div>
+      </div>
+      <div class="price-stat">
+        <div class="price-stat-label">Average</div>
+        <div class="price-stat-value">$${avg.toFixed(2)}</div>
+      </div>
+      <div class="price-stat">
+        <div class="price-stat-label">Current</div>
+        <div class="price-stat-value">$${last.toFixed(2)}</div>
+      </div>
+      <div class="price-stat">
+        <div class="price-stat-label">Change</div>
+        <div class="price-stat-value ${changeClass}">${changeSign}$${Math.abs(change).toFixed(2)}</div>
+      </div>
+      <div class="price-stat">
+        <div class="price-stat-label">Trend</div>
+        <div class="price-stat-value ${changeClass}">${changeSign}${changePct}%</div>
+      </div>`;
+  } catch (e) {
+    chart.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Failed to load price data</div>';
+  }
 }
