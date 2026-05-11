@@ -787,7 +787,9 @@ const server = http.createServer(async (req, res) => {
 
   fs.readFile(resolvedPath, (err, data) => {
     if (err) { res.writeHead(404); res.end('Not Found'); return; }
-    res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' });
+    // SW must never be cached by browser — forces immediate update check
+    const cacheHeader = basename === 'sw.js' ? 'no-store, no-cache, must-revalidate' : 'no-cache';
+    res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': cacheHeader });
     res.end(data);
   });
 });
