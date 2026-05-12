@@ -12,11 +12,19 @@
     <link rel="stylesheet" href="style.css?v=20260511">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#6366f1">
+    <link rel="apple-touch-icon" href="/icon-192.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
 <body>
 
+    <!-- PWA Install Banner -->
+    <div class="pwa-install-banner" id="pwa-install-banner" style="display:none;">
+        <span class="pwa-install-icon">📲</span>
+        <span class="pwa-install-text">Install <strong>Woot Bot</strong> for a better experience</span>
+        <button class="pwa-install-btn" id="pwa-install-btn">Install</button>
+        <button class="pwa-install-dismiss" id="pwa-install-dismiss" title="Dismiss">✕</button>
+    </div>
 
     <div class="app-wrapper">
         <!-- Animated background -->
@@ -604,6 +612,37 @@
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js').catch(() => {});
       }
+
+      // PWA Install Prompt
+      let _deferredPrompt = null;
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        _deferredPrompt = e;
+        // Don't show if user dismissed before
+        if (localStorage.getItem('pwa-install-dismissed')) return;
+        const banner = document.getElementById('pwa-install-banner');
+        if (banner) banner.style.display = 'flex';
+      });
+
+      document.getElementById('pwa-install-btn').addEventListener('click', async () => {
+        if (!_deferredPrompt) return;
+        _deferredPrompt.prompt();
+        const result = await _deferredPrompt.userChoice;
+        if (result.outcome === 'accepted') {
+          document.getElementById('pwa-install-banner').style.display = 'none';
+        }
+        _deferredPrompt = null;
+      });
+
+      document.getElementById('pwa-install-dismiss').addEventListener('click', () => {
+        document.getElementById('pwa-install-banner').style.display = 'none';
+        localStorage.setItem('pwa-install-dismissed', '1');
+      });
+
+      window.addEventListener('appinstalled', () => {
+        document.getElementById('pwa-install-banner').style.display = 'none';
+        _deferredPrompt = null;
+      });
     </script>
 </body>
 </html>

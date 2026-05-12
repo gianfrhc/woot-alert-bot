@@ -39,6 +39,17 @@ input,select{font-family:inherit}
 
 .app-wrapper{position:relative;z-index:1;max-width:1400px;margin:0 auto;padding:12px 20px 40px}
 
+/* === PWA INSTALL BANNER === */
+.pwa-install-banner{position:fixed;bottom:0;left:0;right:0;z-index:300;display:flex;align-items:center;gap:10px;padding:12px 20px;background:linear-gradient(135deg,rgba(99,102,241,0.95),rgba(124,58,237,0.95));backdrop-filter:blur(12px);color:#fff;font-size:0.82rem;animation:pwaSlideUp 0.4s ease-out;box-shadow:0 -4px 20px rgba(0,0,0,0.3)}
+.pwa-install-icon{font-size:1.3rem;flex-shrink:0}
+.pwa-install-text{flex:1;line-height:1.3}
+.pwa-install-text strong{font-weight:700}
+.pwa-install-btn{padding:7px 18px;border-radius:999px;border:2px solid #fff;background:rgba(255,255,255,0.15);color:#fff;font-size:0.78rem;font-weight:700;cursor:pointer;transition:all 0.2s;white-space:nowrap}
+.pwa-install-btn:hover{background:#fff;color:#6366f1}
+.pwa-install-dismiss{background:none;border:none;color:rgba(255,255,255,0.6);font-size:1rem;cursor:pointer;padding:4px 8px;transition:color 0.2s}
+.pwa-install-dismiss:hover{color:#fff}
+@keyframes pwaSlideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+
 /* === PULL-TO-REFRESH === */
 .ptr-indicator{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:8px;padding:8px;background:var(--bg-card);color:var(--accent-light);font-size:0.75rem;font-weight:600;transform:translateY(-100%);transition:transform 0.3s;z-index:200;pointer-events:none}
 .ptr-indicator.visible{transform:translateY(0)}
