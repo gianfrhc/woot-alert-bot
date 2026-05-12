@@ -307,8 +307,11 @@ body.list-mode .btn-view-toggle .icon-grid{opacity:1}
 .keyword-filter-bar{display:flex;align-items:center;gap:6px;width:100%;padding:0;background:none;border:none;border-radius:0;flex-wrap:wrap;margin:0}
 .keyword-filter-label{display:flex;align-items:center;gap:4px;font-size:0.73rem;font-weight:500;color:var(--text-muted);white-space:nowrap;cursor:pointer}
 .keyword-filter-label svg{width:13px;height:13px;color:var(--accent-light)}
-.keyword-filter-label .kw-chevron{width:10px;height:10px;color:var(--text-muted);transition:transform 0.2s;display:none}
-.keyword-filter-bar.collapsed .kw-chevron{transform:rotate(-90deg)}
+.keyword-filter-label .kw-eye{width:12px;height:12px;color:var(--text-muted);transition:color 0.2s;flex-shrink:0}
+.keyword-filter-label .kw-eye-open{display:inline-block}
+.keyword-filter-label .kw-eye-closed{display:none}
+.keyword-filter-bar.collapsed .kw-eye-open{display:none}
+.keyword-filter-bar.collapsed .kw-eye-closed{display:inline-block}
 .keyword-filter-bar.collapsed .keyword-buttons{display:none}
 .keyword-buttons{display:flex;flex-wrap:wrap;gap:5px}
 .keyword-btn{padding:3px 9px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text-secondary);font-size:0.73rem;font-weight:500;cursor:pointer;transition:all var(--transition);letter-spacing:0.3px}
@@ -505,7 +508,7 @@ body.list-mode .btn-view-toggle .icon-grid{opacity:1}
 
   /* Keywords & Tags: compact horizontal scroll */
   .keyword-filter-bar,.category-filter-bar{padding:4px 10px;gap:5px;margin-bottom:4px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;border-radius:8px}
-  .keyword-filter-label .kw-chevron{display:inline-block}
+  .keyword-filter-label .kw-eye{width:11px;height:11px}
   .keyword-filter-label,.category-filter-label{font-size:0.65rem;flex-shrink:0;gap:4px}
   .keyword-filter-label svg,.category-filter-label svg{width:12px;height:12px}
   .keyword-buttons,.category-filter-buttons{overflow-x:auto;flex-wrap:nowrap;padding-bottom:1px;gap:4px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
