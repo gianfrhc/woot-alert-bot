@@ -313,6 +313,7 @@ body.list-mode .btn-view-toggle .icon-grid{opacity:1}
 .keyword-filter-bar.collapsed .kw-eye-open{display:none}
 .keyword-filter-bar.collapsed .kw-eye-closed{display:inline-block}
 .keyword-filter-bar.collapsed .keyword-buttons{display:none}
+.keyword-filter-bar.collapsed{width:auto;flex-shrink:0}
 .keyword-buttons{display:flex;flex-wrap:wrap;gap:5px}
 .keyword-btn{padding:3px 9px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text-secondary);font-size:0.73rem;font-weight:500;cursor:pointer;transition:all var(--transition);letter-spacing:0.3px}
 .keyword-btn:hover{border-color:var(--accent);color:var(--text-primary);background:rgba(99,102,241,0.08)}
