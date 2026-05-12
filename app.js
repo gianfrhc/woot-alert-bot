@@ -513,6 +513,19 @@ function bindEvents() {
     if (e.key === 'Enter') { e.preventDefault(); addKeywordFromInput(); }
   });
 
+  // Keyword toggle (collapse/expand on mobile)
+  const kwToggle = document.getElementById('keyword-toggle');
+  if (kwToggle) {
+    kwToggle.addEventListener('click', () => {
+      const bar = document.getElementById('keyword-filter-bar');
+      bar.classList.toggle('collapsed');
+    });
+    // Start collapsed on mobile
+    if (window.innerWidth <= 768) {
+      document.getElementById('keyword-filter-bar').classList.add('collapsed');
+    }
+  }
+
   // Blocked words system
   document.getElementById('btn-add-blocked').addEventListener('click', () => addBlockedWordFromInput());
   document.getElementById('blocked-word-input').addEventListener('keydown', e => {
