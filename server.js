@@ -1099,6 +1099,13 @@ async function scannerSendNtfy(deal, topic, settings) {
 // Send Discord webhook notification (server-side)
 async function scannerSendDiscord(deal, webhookUrl) {
   try {
+    // SEC-05: Validate Discord webhook URL to prevent SSRF
+    if (!webhookUrl ||
+        !(webhookUrl.startsWith('https://discord.com/api/webhooks/') ||
+          webhookUrl.startsWith('https://discordapp.com/api/webhooks/'))) {
+      console.warn('  ⚠️ Discord: invalid webhook URL blocked (SSRF prevention)');
+      return;
+    }
     const embed = {
       title: deal.title,
       url: deal.url,
@@ -1618,17 +1625,55 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // ===== LOG ROTATION =====
-// Rotate price history: cap entries per deal to prevent unbounded growth
+// Rotate price history: cap entries per deal AND purge stale deals
 const MAX_PRICE_POINTS_PER_DEAL = 30;
+const PRICE_HISTORY_MAX_AGE_DAYS = 30;
+const NTFY_LOGS_MAX_AGE_DAYS = 7;
+
 function rotatePriceHistory() {
   let rotated = 0;
+  let purgedDeals = 0;
+  const cutoff = Date.now() - (PRICE_HISTORY_MAX_AGE_DAYS * 86400000);
+
   for (const id in priceHistory) {
+    // Time-based purge: remove entries older than 30 days
+    const before = priceHistory[id].length;
+    priceHistory[id] = priceHistory[id].filter(entry => {
+      const ts = entry.time ? new Date(entry.time).getTime() : (entry.t ? entry.t : 0);
+      return ts > cutoff || ts === 0; // Keep entries with no timestamp (legacy)
+    });
+
+    // If all entries purged, remove the deal entirely
+    if (priceHistory[id].length === 0) {
+      delete priceHistory[id];
+      purgedDeals++;
+      continue;
+    }
+
+    // Count-based cap: keep only latest N entries per deal
     if (priceHistory[id].length > MAX_PRICE_POINTS_PER_DEAL) {
       priceHistory[id] = priceHistory[id].slice(-MAX_PRICE_POINTS_PER_DEAL);
       rotated++;
     }
   }
-  if (rotated > 0) console.log(`  📜 Price history rotation: trimmed ${rotated} deals to ${MAX_PRICE_POINTS_PER_DEAL} points`);
+  if (rotated > 0 || purgedDeals > 0) {
+    console.log(`  📜 Price history rotation: trimmed ${rotated} deals, purged ${purgedDeals} stale deals (>${PRICE_HISTORY_MAX_AGE_DAYS}d)`);
+  }
+}
+
+// Purge ntfy-logs older than 7 days
+function purgeOldNtfyLogs() {
+  const logs = loadNtfyLogs();
+  const cutoff = Date.now() - (NTFY_LOGS_MAX_AGE_DAYS * 86400000);
+  const before = logs.length;
+  const fresh = logs.filter(l => {
+    const ts = l.time ? new Date(l.time).getTime() : 0;
+    return ts > cutoff || ts === 0;
+  });
+  if (fresh.length < before) {
+    console.log(`  📜 Ntfy logs purge: removed ${before - fresh.length} entries older than ${NTFY_LOGS_MAX_AGE_DAYS} days`);
+    saveNtfyLogs(fresh);
+  }
 }
 
 // ===== AUTOMATED DAILY BACKUPS =====
@@ -1637,8 +1682,9 @@ const MAX_BACKUPS = 7; // Keep last 7 days
 
 function runDailyBackup() {
   try {
-    // Rotate price history before backup
+    // Rotate price history and purge old ntfy logs before backup
     rotatePriceHistory();
+    purgeOldNtfyLogs();
 
     // Ensure backup directory exists
     if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
