@@ -327,6 +327,7 @@ function applySettingsToUI() {
   renderKeywordTagsSettings();
   renderKeywordButtonsMain();
   renderBlockedWordsSettings();
+  renderAlertRules();
 }
 
 // ===== API KEY STATUS =====
@@ -531,6 +532,9 @@ function bindEvents() {
   document.getElementById('blocked-word-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); addBlockedWordFromInput(); }
   });
+
+  // Custom alert rules
+  document.getElementById('btn-add-rule').addEventListener('click', () => addAlertRule());
 
   // Show/hide for Telegram token and Email password
   const tgToggle = document.getElementById('btn-toggle-tg-token');
@@ -912,6 +916,106 @@ function renderBlockedWordsSettings() {
   container.querySelectorAll('.tag-remove').forEach(btn => {
     btn.addEventListener('click', () => removeBlockedWord(btn.dataset.word));
   });
+}
+
+// ===== CUSTOM ALERT RULES BUILDER =====
+function renderAlertRules() {
+  const container = document.getElementById('alert-rules-container');
+  if (!container) return;
+  const rules = state.settings.alertRules || [];
+
+  if (rules.length === 0) {
+    container.innerHTML = '<div class="alert-rules-empty">No custom rules. Using keyword buttons + global discount threshold as fallback.</div>';
+    return;
+  }
+
+  container.innerHTML = rules.map((rule, idx) => `
+    <div class="alert-rule-card ${rule.enabled === false ? 'rule-disabled' : ''}" data-rule-idx="${idx}">
+      <div class="alert-rule-header">
+        <span class="rule-label">Rule #${idx + 1}</span>
+        <div class="rule-actions">
+          <span class="rule-priority-badge priority-${rule.priority || 'default'}">${rule.priority === 'urgent' ? '🚨 Urgent' : '📋 Normal'}</span>
+          <button class="rule-delete-btn" data-rule-idx="${idx}" title="Delete rule">✕</button>
+        </div>
+      </div>
+      <div class="alert-rule-fields">
+        <div class="alert-rule-field full-width">
+          <label>Keyword (contains)</label>
+          <input type="text" class="rule-keyword" data-rule-idx="${idx}" value="${escHtml(rule.keyword || '')}" placeholder="e.g. RTX 4070, iPad, Samsung">
+        </div>
+        <div class="alert-rule-field">
+          <label>Min Discount (%)</label>
+          <input type="number" class="rule-min-discount" data-rule-idx="${idx}" value="${rule.minDiscount || 0}" min="0" max="100" placeholder="0">
+        </div>
+        <div class="alert-rule-field">
+          <label>Max Price ($)</label>
+          <input type="number" class="rule-max-price" data-rule-idx="${idx}" value="${rule.maxPrice || 0}" min="0" step="10" placeholder="0 = any">
+        </div>
+        <div class="alert-rule-field">
+          <label>Priority</label>
+          <select class="rule-priority" data-rule-idx="${idx}">
+            <option value="default" ${(rule.priority || 'default') === 'default' ? 'selected' : ''}>📋 Normal</option>
+            <option value="urgent" ${rule.priority === 'urgent' ? 'selected' : ''}>🚨 Urgent</option>
+          </select>
+        </div>
+        <div class="alert-rule-field">
+          <label>Status</label>
+          <select class="rule-enabled" data-rule-idx="${idx}">
+            <option value="true" ${rule.enabled !== false ? 'selected' : ''}>✅ Enabled</option>
+            <option value="false" ${rule.enabled === false ? 'selected' : ''}>⏸️ Disabled</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  // Bind events
+  container.querySelectorAll('.rule-keyword').forEach(input => {
+    input.addEventListener('change', () => updateRuleField(input.dataset.ruleIdx, 'keyword', input.value));
+  });
+  container.querySelectorAll('.rule-min-discount').forEach(input => {
+    input.addEventListener('change', () => updateRuleField(input.dataset.ruleIdx, 'minDiscount', parseInt(input.value) || 0));
+  });
+  container.querySelectorAll('.rule-max-price').forEach(input => {
+    input.addEventListener('change', () => updateRuleField(input.dataset.ruleIdx, 'maxPrice', parseInt(input.value) || 0));
+  });
+  container.querySelectorAll('.rule-priority').forEach(sel => {
+    sel.addEventListener('change', () => updateRuleField(sel.dataset.ruleIdx, 'priority', sel.value));
+  });
+  container.querySelectorAll('.rule-enabled').forEach(sel => {
+    sel.addEventListener('change', () => updateRuleField(sel.dataset.ruleIdx, 'enabled', sel.value === 'true'));
+  });
+  container.querySelectorAll('.rule-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => deleteAlertRule(parseInt(btn.dataset.ruleIdx)));
+  });
+}
+
+function addAlertRule() {
+  if (!state.settings.alertRules) state.settings.alertRules = [];
+  if (state.settings.alertRules.length >= 20) {
+    showToast('Maximum 20 rules allowed', 'error');
+    return;
+  }
+  state.settings.alertRules.push({
+    keyword: '', minDiscount: 40, maxPrice: 0,
+    priority: 'default', enabled: true
+  });
+  renderAlertRules();
+  showToast('Rule added — configure and Save', 'success');
+}
+
+function deleteAlertRule(idx) {
+  if (!state.settings.alertRules) return;
+  state.settings.alertRules.splice(idx, 1);
+  renderAlertRules();
+  showToast('Rule removed', 'info');
+}
+
+function updateRuleField(idx, field, value) {
+  if (!state.settings.alertRules || !state.settings.alertRules[idx]) return;
+  state.settings.alertRules[idx][field] = value;
+  // Re-render to update visual state (e.g. disabled class, priority badge)
+  renderAlertRules();
 }
 
 function isBlockedDeal(deal) {
@@ -1474,20 +1578,117 @@ function renderDeals() {
   const availableTotal = state.deals.filter(d => !d.isSoldOut).length;
   if (countEl) countEl.textContent = `${filtered.length} of ${availableTotal} deals`;
 
-  // === VIRTUAL SCROLLING: Batch rendering ===
+  // === DIFF RENDERING: Only add/remove/reorder changed cards ===
   const BATCH_SIZE = 40;
-  state._filteredDeals = filtered; // Store for batch loading
+  const MAX_DOM_CARDS = 120; // Virtual scroll: max cards in DOM at once
+  state._filteredDeals = filtered;
   state._renderedCount = 0;
 
-  // Clear grid and render first batch
-  grid.innerHTML = '';
-  renderNextBatch(grid, BATCH_SIZE);
+  // Build a set of IDs that should be displayed
+  const newDealIds = new Set(filtered.map(d => d.id));
 
-  // Setup IntersectionObserver sentinel for infinite scroll
+  // Get existing cards in DOM
+  const existingCards = grid.querySelectorAll('.deal-card[data-deal-id]');
+  const existingMap = new Map();
+  existingCards.forEach(card => existingMap.set(card.dataset.dealId, card));
+
+  // Remove cards that are no longer in the filtered set
+  for (const [id, card] of existingMap) {
+    if (!newDealIds.has(id)) {
+      card.remove();
+      existingMap.delete(id);
+    }
+  }
+
+  // Remove old sentinel
+  const oldSentinel = grid.querySelector('.scroll-sentinel');
+  if (oldSentinel) oldSentinel.remove();
+
+  // Determine how many to render (cap at MAX_DOM_CARDS for virtual scroll)
+  const renderLimit = Math.min(filtered.length, MAX_DOM_CARDS);
+
+  // Build ordered fragment for the first batch
+  const fragment = document.createDocumentFragment();
+  let added = 0;
+  for (let i = 0; i < renderLimit; i++) {
+    const deal = filtered[i];
+    if (existingMap.has(deal.id)) {
+      // Card exists — reuse it (move to correct position)
+      const existingCard = existingMap.get(deal.id);
+      // Update mutable fields without full rebuild
+      updateCardInPlace(existingCard, deal);
+      fragment.appendChild(existingCard);
+    } else {
+      // New card — create it
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = renderDealCard(deal, i);
+      const card = wrapper.firstElementChild;
+      bindCardEvents(card);
+      fragment.appendChild(card);
+      added++;
+    }
+  }
+
+  // Clear grid and append the diffed fragment
+  grid.innerHTML = '';
+  grid.appendChild(fragment);
+  state._renderedCount = renderLimit;
+
+  // Lazy-load images + sparklines for new cards
+  if (added > 0) {
+    const batchIds = filtered.slice(0, renderLimit).map(d => d.id);
+    fetchSparklines(batchIds);
+  }
+  lazyLoadImages(grid);
+
+  // Setup infinite scroll sentinel if there are more deals
   setupScrollSentinel(grid);
 
   // Update dynamic category filter bar
   renderCategoryFilterBar();
+}
+
+// Bind events to a newly created card (extracted for reuse)
+function bindCardEvents(card) {
+  const favBtn = card.querySelector('.deal-fav');
+  if (favBtn) {
+    favBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleFavorite(favBtn.dataset.dealId);
+    });
+  }
+}
+
+// Update mutable card fields in-place without full DOM rebuild
+function updateCardInPlace(card, deal) {
+  // Update sold-out badge
+  const badges = card.querySelector('.deal-badges');
+  const hasSoldOut = badges?.querySelector('.badge-soldout');
+  if (deal.isSoldOut && !hasSoldOut && badges) {
+    const badge = document.createElement('span');
+    badge.className = 'badge badge-soldout';
+    badge.textContent = 'Sold Out';
+    badges.appendChild(badge);
+  } else if (!deal.isSoldOut && hasSoldOut) {
+    hasSoldOut.remove();
+  }
+
+  // Update favorite button state
+  const favBtn = card.querySelector('.deal-fav');
+  if (favBtn) {
+    const isFav = state.favorites.has(deal.id);
+    favBtn.textContent = isFav ? '💖' : '🤍';
+    favBtn.title = isFav ? 'Remove from favorites' : 'Add to favorites';
+  }
+
+  // Update price if changed
+  const priceEl = card.querySelector('.deal-sale-price');
+  if (priceEl) {
+    const newPrice = deal.salePriceMax > deal.salePrice
+      ? `$${deal.salePrice.toFixed(2)} – $${deal.salePriceMax.toFixed(2)}`
+      : `$${deal.salePrice.toFixed(2)}`;
+    if (priceEl.textContent !== newPrice) priceEl.textContent = newPrice;
+  }
 }
 
 // Render a single deal card HTML
@@ -1539,7 +1740,7 @@ function renderDealCard(deal, i) {
     : '';
 
   return `
-  <div class="deal-card ${isHot ? 'hot-deal' : ''} ${discountTier} ${condClass} ${animClass} ${isNewDeal ? 'new-deal-pulse' : ''}" style="${!state.hasRenderedOnce ? 'animation-delay:'+Math.min(i*0.03,0.6)+'s' : ''}">
+  <div class="deal-card ${isHot ? 'hot-deal' : ''} ${discountTier} ${condClass} ${animClass} ${isNewDeal ? 'new-deal-pulse' : ''}" data-deal-id="${deal.id}" style="${!state.hasRenderedOnce ? 'animation-delay:'+Math.min(i*0.03,0.6)+'s' : ''}">
     <div class="deal-badges">
       ${deal.discount > 0 ? `<span class="badge ${deal.discount >= 60 ? 'badge-hot' : deal.discount >= 40 ? 'badge-discount' : 'badge-mild'}">${deal.discount}% OFF</span>` : ''}
       ${deal.isSoldOut ? '<span class="badge badge-soldout">Sold Out</span>' : ''}
@@ -1587,14 +1788,7 @@ function renderNextBatch(grid, count) {
     const wrapper = document.createElement('div');
     wrapper.innerHTML = renderDealCard(deals[i], i);
     const card = wrapper.firstElementChild;
-    // Bind favorite button
-    const favBtn = card.querySelector('.deal-fav');
-    if (favBtn) {
-      favBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleFavorite(favBtn.dataset.dealId);
-      });
-    }
+    bindCardEvents(card);
     fragment.appendChild(card);
   }
 

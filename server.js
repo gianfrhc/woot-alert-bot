@@ -234,7 +234,7 @@ const SETTINGS_SCHEMA = {
   minDiscount: 'number', minPrice: 'number', maxPrice: 'number',
   refreshInterval: 'number', ntfyMinDiscount: 'number',
   categories: 'array', keywordButtons: 'array', blockedWords: 'array',
-  activeKeywords: 'array',
+  activeKeywords: 'array', alertRules: 'array',
   soundEnabled: 'boolean', notificationsEnabled: 'boolean',
   ntfyEnabled: 'boolean', discordEnabled: 'boolean',
   telegramEnabled: 'boolean', emailEnabled: 'boolean',
@@ -756,7 +756,8 @@ const server = http.createServer(async (req, res) => {
       categoryBreakdown: catBreakdown,
       priceDistribution: priceBuckets,
       notificationsByDay: ntfyByDay,
-      connectedClients: sseClients.size
+      connectedClients: sseClients.size,
+      channelStats: scanner.channelStats
     }));
     return;
   }
@@ -813,7 +814,14 @@ const scanner = {
   // Rate limit backoff state
   consecutive429: 0,      // Count of consecutive scans where ALL feeds returned 429
   backoffSec: 0,          // Current backoff override (0 = use normal interval)
-  lastRateLimitTime: 0    // Timestamp of last 429 error
+  lastRateLimitTime: 0,   // Timestamp of last 429 error
+  // Per-channel notification metrics
+  channelStats: {
+    ntfy:     { success: 0, error: 0 },
+    discord:  { success: 0, error: 0 },
+    telegram: { success: 0, error: 0 },
+    email:    { success: 0, error: 0 }
+  }
 };
 
 // ===== SSE LIVE UPDATES =====
@@ -1036,7 +1044,7 @@ function scannerIsQuietHours(settings) {
 }
 
 // Send ntfy.sh notification (server-side)
-async function scannerSendNtfy(deal, topic, settings) {
+async function scannerSendNtfy(deal, topic, settings, rulePriority) {
   try {
     const safeTitle = (deal.title || 'Deal')
       .replace(/[^\x20-\x7E]/g, '')
@@ -1045,12 +1053,15 @@ async function scannerSendNtfy(deal, topic, settings) {
 
     const body = `${deal.title}\nPrecio: $${deal.salePrice.toFixed(2)} Antes $${deal.listPrice.toFixed(2)}${deal.discount > 0 ? ` (${deal.discount}% OFF)` : ''}\n${deal.url}`;
 
+    // Priority: urgent rule → 5, else discount-based
+    const ntfyPriority = rulePriority === 'urgent' ? '5' : (deal.discount >= 60 ? '5' : '4');
+
     const res = await fetch(`https://ntfy.sh/${encodeURIComponent(topic)}`, {
       method: 'POST',
       headers: {
         'Title': titleHeader,
-        'Tags': 'moneybag,fire',
-        'Priority': deal.discount >= 60 ? '5' : '4',
+        'Tags': rulePriority === 'urgent' ? 'rotating_light,fire' : 'moneybag,fire',
+        'Priority': ntfyPriority,
         'Click': deal.url
       },
       body
@@ -1104,7 +1115,7 @@ async function scannerSendDiscord(deal, webhookUrl) {
         !(webhookUrl.startsWith('https://discord.com/api/webhooks/') ||
           webhookUrl.startsWith('https://discordapp.com/api/webhooks/'))) {
       console.warn('  ⚠️ Discord: invalid webhook URL blocked (SSRF prevention)');
-      return;
+      return false;
     }
     const embed = {
       title: deal.title,
@@ -1132,11 +1143,14 @@ async function scannerSendDiscord(deal, webhookUrl) {
 
     if (res.ok || res.status === 204) {
       console.log(`  💬 Discord → ${deal.title.substring(0, 50)}...`);
+      return true;
     } else {
       console.warn(`  ⚠️ Discord error: HTTP ${res.status}`);
+      return false;
     }
   } catch (err) {
     console.warn(`  ❌ Discord failed: ${err.message}`);
+    return false;
   }
 }
 
@@ -1433,38 +1447,68 @@ async function scannerDoScan() {
         if (scannerIsBlocked(deal, blockedWords)) continue;
         if (!scannerIsAllowedCondition(deal, settings)) continue;
 
-        // Keyword matching logic:
-        // - If keywords defined: only notify if deal matches a keyword
-        // - If no keywords defined: use ntfyMinDiscount threshold
-        // Searches title, subtitle, URL, and categories for broader matching
-        // (Woot API sometimes truncates product names, e.g. omitting "AMD Radeon")
+        // === CUSTOM ALERT RULES EVALUATION ===
+        const alertRules = settings.alertRules || [];
         const hasDefinedKws = allDefinedKws.length > 0;
         const searchText = [
           deal.title, deal.subtitle || '',
           deal.url || '', (deal.categories || []).join(' ')
         ].join(' ').toLowerCase();
-        const kwMatch = hasDefinedKws && allDefinedKws.some(kw => searchText.includes(kw));
 
-        const shouldNotify = kwMatch || (!hasDefinedKws && deal.discount >= (settings.ntfyMinDiscount || 0));
+        let shouldNotify = false;
+        let rulePriority = 'default'; // default, urgent
+
+        if (alertRules.length > 0) {
+          // Custom rules mode: OR-match across all rules
+          for (const rule of alertRules) {
+            if (!rule.enabled) continue;
+            let ruleMatch = true;
+
+            // Keyword condition (if specified)
+            if (rule.keyword && rule.keyword.trim()) {
+              const kw = rule.keyword.trim().toLowerCase();
+              if (!searchText.includes(kw)) ruleMatch = false;
+            }
+
+            // Min discount condition (if specified)
+            if (rule.minDiscount > 0 && deal.discount < rule.minDiscount) ruleMatch = false;
+
+            // Max price condition (if specified)
+            if (rule.maxPrice > 0 && deal.salePrice > rule.maxPrice) ruleMatch = false;
+
+            if (ruleMatch) {
+              shouldNotify = true;
+              if (rule.priority === 'urgent') rulePriority = 'urgent';
+              break; // First matching rule wins
+            }
+          }
+        } else {
+          // Legacy mode: keyword buttons + global threshold
+          const kwMatch = hasDefinedKws && allDefinedKws.some(kw => searchText.includes(kw));
+          shouldNotify = kwMatch || (!hasDefinedKws && deal.discount >= (settings.ntfyMinDiscount || 0));
+        }
 
         if (!shouldNotify) continue;
 
         // Send ntfy (individual per deal)
         if (settings.ntfyEnabled && settings.ntfyTopic) {
-          await scannerSendNtfy(deal, settings.ntfyTopic, settings);
-          notifiedCount++;
+          const ok = await scannerSendNtfy(deal, settings.ntfyTopic, settings, rulePriority);
+          scanner.channelStats.ntfy[ok ? 'success' : 'error']++;
+          if (ok) notifiedCount++;
         }
 
         // Send Discord (individual per deal)
         if (settings.discordEnabled && settings.discordWebhook) {
-          await scannerSendDiscord(deal, settings.discordWebhook);
-          notifiedCount++;
+          const ok = await scannerSendDiscord(deal, settings.discordWebhook);
+          scanner.channelStats.discord[ok ? 'success' : 'error']++;
+          if (ok) notifiedCount++;
         }
 
         // Send Telegram (individual per deal)
         if (settings.telegramEnabled && settings.telegramBotToken && settings.telegramChatId) {
-          await scannerSendTelegram(deal, settings.telegramBotToken, settings.telegramChatId);
-          notifiedCount++;
+          const ok = await scannerSendTelegram(deal, settings.telegramBotToken, settings.telegramChatId);
+          scanner.channelStats.telegram[ok ? 'success' : 'error']++;
+          if (ok) notifiedCount++;
         }
 
         // Collect for email digest (sent as single email after loop)
@@ -1475,8 +1519,9 @@ async function scannerDoScan() {
 
       // Send single digest email with all deals from this scan
       if (emailDigestDeals.length > 0) {
-        await scannerSendEmail(emailDigestDeals, settings.emailAddress, settings.emailAppPassword, settings.emailRecipient);
-        notifiedCount++;
+        const ok = await scannerSendEmail(emailDigestDeals, settings.emailAddress, settings.emailAppPassword, settings.emailRecipient);
+        scanner.channelStats.email[ok ? 'success' : 'error']++;
+        if (ok) notifiedCount++;
       }
 
       if (notifiedCount > 0) {
