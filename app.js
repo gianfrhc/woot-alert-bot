@@ -13,7 +13,9 @@ const state = {
     keywordButtons: [],
     blockedWords: [],
     ntfyAllowOpenBox: false,
+    ntfyAllowCertified: false,
     ntfyAllowRefurbished: false,
+    ntfyAllowReconditioned: false,
     soundEnabled: false,
     notificationsEnabled: true,
     ntfyEnabled: false,
@@ -197,6 +199,18 @@ async function loadSettings() {
   if (favs) { try { JSON.parse(favs).forEach(id => state.favorites.add(id)); } catch(e) {} }
   // Migrate favorites to server
   loadFavoritesFromServer();
+  // Load condition filter state from localStorage
+  const savedConds = localStorage.getItem('woot-condition-filters');
+  if (savedConds) {
+    try {
+      const arr = JSON.parse(savedConds);
+      state.activeConditions = new Set(arr);
+      // Sync chip UI
+      document.querySelectorAll('.cond-chip').forEach(chip => {
+        chip.classList.toggle('active', state.activeConditions.has(chip.dataset.cond));
+      });
+    } catch(e) {}
+  }
 }
 
 // ===== DARK / LIGHT MODE =====
@@ -298,8 +312,12 @@ function applySettingsToUI() {
   // Condition toggles
   document.getElementById('toggle-allow-openbox').classList.toggle('active', !!s.ntfyAllowOpenBox);
   document.getElementById('toggle-allow-openbox').setAttribute('aria-checked', !!s.ntfyAllowOpenBox);
+  document.getElementById('toggle-allow-certified').classList.toggle('active', !!s.ntfyAllowCertified);
+  document.getElementById('toggle-allow-certified').setAttribute('aria-checked', !!s.ntfyAllowCertified);
   document.getElementById('toggle-allow-refurbished').classList.toggle('active', !!s.ntfyAllowRefurbished);
   document.getElementById('toggle-allow-refurbished').setAttribute('aria-checked', !!s.ntfyAllowRefurbished);
+  document.getElementById('toggle-allow-reconditioned').classList.toggle('active', !!s.ntfyAllowReconditioned);
+  document.getElementById('toggle-allow-reconditioned').setAttribute('aria-checked', !!s.ntfyAllowReconditioned);
   // Discord
   document.getElementById('toggle-discord').classList.toggle('active', s.discordEnabled);
   document.getElementById('toggle-discord').setAttribute('aria-checked', s.discordEnabled);
@@ -437,7 +455,7 @@ function bindEvents() {
     document.getElementById('ntfy-min-discount-value').textContent = e.target.value + '%';
   });
 
-  ['toggle-sound','toggle-notifications','toggle-ntfy','toggle-discord','toggle-allow-openbox','toggle-allow-refurbished','toggle-telegram','toggle-email'].forEach(id => {
+  ['toggle-sound','toggle-notifications','toggle-ntfy','toggle-discord','toggle-allow-openbox','toggle-allow-certified','toggle-allow-refurbished','toggle-allow-reconditioned','toggle-telegram','toggle-email'].forEach(id => {
     const el = document.getElementById(id);
     const toggle = () => {
       el.classList.toggle('active');
@@ -521,6 +539,7 @@ function bindEvents() {
         state.activeConditions.add(cond);
         this.classList.add('active');
       }
+      localStorage.setItem('woot-condition-filters', JSON.stringify([...state.activeConditions]));
       renderDeals();
     });
   });
@@ -715,7 +734,9 @@ function saveSettingsFromUI() {
   s.quietStart = document.getElementById('quiet-start').value;
   s.quietEnd = document.getElementById('quiet-end').value;
   s.ntfyAllowOpenBox = document.getElementById('toggle-allow-openbox').classList.contains('active');
+  s.ntfyAllowCertified = document.getElementById('toggle-allow-certified').classList.contains('active');
   s.ntfyAllowRefurbished = document.getElementById('toggle-allow-refurbished').classList.contains('active');
+  s.ntfyAllowReconditioned = document.getElementById('toggle-allow-reconditioned').classList.contains('active');
   s.discordEnabled = document.getElementById('toggle-discord').classList.contains('active');
   s.discordWebhook = document.getElementById('discord-webhook').value.trim();
   // Telegram
@@ -761,7 +782,7 @@ function saveSettingsFromUI() {
 
 function resetSettings() {
   if (!confirm('Reset all settings? This will delete your keywords, ntfy topic, and API key.')) return;
-  state.settings = { minDiscount:30, minPrice:0, maxPrice:300, refreshInterval:300, categories:['All'], keywordButtons:[], blockedWords:[], ntfyAllowOpenBox:false, ntfyAllowRefurbished:false, soundEnabled:false, notificationsEnabled:true, ntfyEnabled:false, ntfyTopic:'', ntfyMinDiscount:40, quietStart:'', quietEnd:'', discordEnabled:false, discordWebhook:'', apiKey:'' };
+  state.settings = { minDiscount:30, minPrice:0, maxPrice:300, refreshInterval:300, categories:['All'], keywordButtons:[], blockedWords:[], ntfyAllowOpenBox:false, ntfyAllowCertified:false, ntfyAllowRefurbished:false, ntfyAllowReconditioned:false, soundEnabled:false, notificationsEnabled:true, ntfyEnabled:false, ntfyTopic:'', ntfyMinDiscount:40, quietStart:'', quietEnd:'', discordEnabled:false, discordWebhook:'', apiKey:'' };
   state.activeKeywords.clear();
   saveSettings();
   applySettingsToUI();
@@ -1045,15 +1066,23 @@ function isBlockedDeal(deal) {
 function isAllowedCondition(deal) {
   const cond = (deal.condition || '').toLowerCase().trim();
   // No condition or "New" → always allowed
-  if (!cond || cond === 'new') return true;
+  if (!cond || (cond.includes('new') && !cond.includes('refurb') && !cond.includes('recondition'))) return true;
   const s = state.settings;
   // Open Box variants
   if (cond.includes('open box') || cond.includes('openbox')) {
     return !!s.ntfyAllowOpenBox;
   }
+  // Certified Refurbished (must check before generic refurbished)
+  if (cond.includes('certified') && cond.includes('refurb')) {
+    return !!s.ntfyAllowCertified;
+  }
   // Refurbished variants
-  if (cond.includes('refurbished') || cond.includes('refurb')) {
+  if (cond.includes('refurb')) {
     return !!s.ntfyAllowRefurbished;
+  }
+  // Factory Reconditioned
+  if (cond.includes('recondition') || cond.includes('factory')) {
+    return !!s.ntfyAllowReconditioned;
   }
   // Unknown condition → allow by default
   return true;

@@ -238,7 +238,7 @@ const SETTINGS_SCHEMA = {
   soundEnabled: 'boolean', notificationsEnabled: 'boolean',
   ntfyEnabled: 'boolean', discordEnabled: 'boolean',
   telegramEnabled: 'boolean', emailEnabled: 'boolean',
-  ntfyAllowOpenBox: 'boolean', ntfyAllowRefurbished: 'boolean',
+  ntfyAllowOpenBox: 'boolean', ntfyAllowCertified: 'boolean', ntfyAllowRefurbished: 'boolean', ntfyAllowReconditioned: 'boolean',
   ntfyTopic: 'string', quietStart: 'string', quietEnd: 'string',
   discordWebhook: 'string', apiKey: 'string',
   telegramBotToken: 'string', telegramChatId: 'string',
@@ -1040,12 +1040,18 @@ function scannerIsBlocked(deal, blockedWords) {
 // Check product condition filter
 function scannerIsAllowedCondition(deal, settings) {
   const cond = (deal.condition || '').toLowerCase().trim();
-  if (!cond || cond === 'new') return true;
+  if (!cond || (cond.includes('new') && !cond.includes('refurb') && !cond.includes('recondition'))) return true;
   if (cond.includes('open box') || cond.includes('openbox')) {
     return !!settings.ntfyAllowOpenBox;
   }
-  if (cond.includes('refurbished') || cond.includes('refurb')) {
+  if (cond.includes('certified') && cond.includes('refurb')) {
+    return !!settings.ntfyAllowCertified;
+  }
+  if (cond.includes('refurb')) {
     return !!settings.ntfyAllowRefurbished;
+  }
+  if (cond.includes('recondition') || cond.includes('factory')) {
+    return !!settings.ntfyAllowReconditioned;
   }
   return true; // unknown condition → allow
 }
