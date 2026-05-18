@@ -65,9 +65,9 @@
                 <button class="btn btn-icon" id="btn-settings" title="Settings">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
                 </button>
-                <button class="btn btn-primary" id="btn-refresh">
+                <button class="btn btn-primary scanner-running" id="btn-refresh" title="Stop Scanner">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                    <span>Scan Now</span>
+                    <span>⏹ Stop</span>
                 </button>
                 <a href="/stats.html" class="btn btn-icon mobile-hide" title="Stats Dashboard" style="color:var(--text-muted)">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
@@ -162,13 +162,13 @@
                             Auto-refresh Interval
                         </label>
                         <select id="refresh-interval" class="select-input">
-                            <option value="60">Every 1 minute</option>
+                            <option value="90">Every 1m 30s (max API usage)</option>
                             <option value="120">Every 2 minutes</option>
+                            <option value="150" selected>Every 2m 30s (recommended)</option>
                             <option value="180">Every 3 minutes</option>
                             <option value="240">Every 4 minutes</option>
-                            <option value="300" selected>Every 5 minutes</option>
+                            <option value="300">Every 5 minutes</option>
                             <option value="600">Every 10 minutes</option>
-                            <option value="0">Manual only</option>
                         </select>
                     </div>
                     </div>
@@ -601,8 +601,8 @@
     </div>
 
     <!-- Floating Action Button (mobile scan) -->
-    <button class="fab-scan" id="fab-scan" title="Scan Now">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+    <button class="fab-scan scanner-running" id="fab-scan" title="Stop Scanner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
     </button>
 
     <!-- Back to Top FAB -->

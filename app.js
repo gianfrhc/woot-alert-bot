@@ -39,7 +39,8 @@ const state = {
   _bellTimeout: null,
   favorites: new Set(),
   scannerActive: false,
-  serverInterval: 120,
+  scannerRunning: true,   // Scanner on/off state (start/stop)
+  serverInterval: 150,
   activeCategories: new Set(['PC', 'TECH']),  // Dynamic tag filter — PC & TECH selected by default
   unreadAlerts: 0  // Badge counter for unread notifications
 };
@@ -50,7 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
   bindEvents();
   requestNotificationPermission();
-  scanDeals();
+  fetchDealsQuiet();  // Load deals without triggering scan
   startAutoRefresh();
   connectSSE();
   initBackToTop();
@@ -357,10 +358,10 @@ function toggleApiKeyVisibility() {
 
 // ===== EVENTS =====
 function bindEvents() {
-  document.getElementById('btn-refresh').addEventListener('click', () => scanDeals());
+  document.getElementById('btn-refresh').addEventListener('click', () => toggleScanner());
   // FAB scan button (mobile)
   const fabScan = document.getElementById('fab-scan');
-  if (fabScan) fabScan.addEventListener('click', () => scanDeals());
+  if (fabScan) fabScan.addEventListener('click', () => toggleScanner());
   document.getElementById('btn-settings').addEventListener('click', () => toggleSettings(true));
   document.getElementById('btn-close-settings').addEventListener('click', () => toggleSettings(false));
   document.getElementById('settings-overlay').addEventListener('click', () => toggleSettings(false));
@@ -635,12 +636,12 @@ function bindEvents() {
 
 function bindStatCards() {
   const cards = document.querySelectorAll('.stat-card');
-  const labels = ['All active deals','Filter hot deals ≥50%','Jump to alerts','Scan now'];
+  const labels = ['All active deals','Filter hot deals ≥50%','Jump to alerts','Toggle scanner'];
   const actions = [
     () => {}, 
     () => { document.querySelector('.filter-chip[data-filter="hot"]')?.click(); },
     () => { document.getElementById('alerts-section').scrollIntoView({behavior:'smooth'}); },
-    () => { scanDeals(); }
+    () => { toggleScanner(); }
   ];
   cards.forEach((card, i) => {
     if (actions[i]) card.addEventListener('click', actions[i]);
@@ -739,7 +740,6 @@ function saveSettingsFromUI() {
   toggleSettings(false);
   showToast('Settings saved!', 'success');
   renderKeywordButtonsMain();
-  startAutoRefresh();
   scanDeals();
 }
 
@@ -1171,24 +1171,24 @@ async function scanDeals() {
   updateStatus('scanning');
   showLoading(true);
 
-  // Scan button feedback
+  // Button feedback
   const btn = document.getElementById('btn-refresh');
-  btn.classList.add('scanning');
-  btn.querySelector('span').textContent = 'Scanning...';
+  const origText = btn.querySelector('span').textContent;
 
   const scanStart = Date.now();
 
   try {
-    // Trigger a server-side scan (fire & forget — server scans autonomously)
-    fetch('/api/scan', { method: 'POST' }).catch(() => {});
-
-    // Wait a moment for server scan to complete, then fetch deals
-    await new Promise(r => setTimeout(r, 2000));
-
+    // Fetch deals from server (don't trigger scan — server scans on its own interval)
     const res = await fetch('/api/deals');
     if (!res.ok) throw new Error(`Server returned ${res.status}`);
     const data = await res.json();
     const deals = data.deals || [];
+
+    // Sync scanner running state from server
+    if (typeof data.running === 'boolean') {
+      state.scannerRunning = data.running;
+      updateScannerButton();
+    }
 
     if (deals.length === 0) {
       // Check if rate limited before showing generic message
@@ -1198,6 +1198,8 @@ async function scanDeals() {
           const status = await statusRes.json();
           if (status.rateLimited) {
             showToast(`⚠️ Rate limited by Woot API — backing off ${Math.round(status.backoffSec / 60)}min`, 'error');
+          } else if (!state.scannerRunning) {
+            showToast('Scanner is stopped — press ▶ Start to begin scanning', 'info');
           } else {
             showToast('No deals found — check API key in Settings', 'info');
           }
@@ -1234,14 +1236,18 @@ async function scanDeals() {
       if (statusRes.ok) {
         const status = await statusRes.json();
         if (status.scanCount > 0 || status.dealsCount > 0) state.scannerActive = true;
-        state.serverInterval = status.intervalSec || 120;
-        if (status.nextScanIn > 0) {
+        if (typeof status.running === 'boolean') {
+          state.scannerRunning = status.running;
+          updateScannerButton();
+        }
+        state.serverInterval = status.intervalSec || 150;
+        if (status.nextScanIn > 0 && state.scannerRunning) {
           state.countdown = Math.min(status.nextScanIn, state.serverInterval);
         }
       }
     } catch(e) { /* scan-status unavailable, use local state */ }
 
-    updateStatus('active');
+    updateStatus(state.scannerRunning ? 'active' : 'stopped');
 
     const scanDuration = ((Date.now() - scanStart) / 1000).toFixed(1);
     document.getElementById('stat-last-scan').textContent = data.lastScan
@@ -1253,23 +1259,83 @@ async function scanDeals() {
 
     showToast(`🔴 LIVE — ${deals.length} deals (${newDeals.length} new) in ${scanDuration}s`, 'success');
 
-    // Button success flash
-    btn.classList.remove('scanning');
-    btn.classList.add('scan-done');
-    btn.querySelector('span').textContent = '✓ Done';
-    setTimeout(() => { btn.classList.remove('scan-done'); btn.querySelector('span').textContent = 'Scan Now'; }, 1500);
-
   } catch (err) {
     console.error('Scan error:', err);
     showToast('Scan failed: ' + err.message, 'error');
     updateStatus('error');
-    btn.classList.remove('scanning');
-    btn.querySelector('span').textContent = 'Scan Now';
   }
 
   state.isScanning = false;
   showLoading(false);
   resetCountdown();
+}
+
+// ===== SCANNER START/STOP =====
+async function toggleScanner() {
+  const btn = document.getElementById('btn-refresh');
+  btn.disabled = true;
+
+  try {
+    if (state.scannerRunning) {
+      // Stop scanner
+      const res = await fetch('/api/scanner/stop', { method: 'POST' });
+      if (res.ok) {
+        state.scannerRunning = false;
+        updateScannerButton();
+        updateStatus('stopped');
+        // Clear countdown
+        state.countdown = 0;
+        document.getElementById('countdown').textContent = '--:--';
+        const hc = document.getElementById('header-countdown');
+        if (hc) hc.textContent = '--:--';
+        showToast('⏹ Scanner stopped', 'info');
+      }
+    } else {
+      // Start scanner
+      const res = await fetch('/api/scanner/start', { method: 'POST' });
+      if (res.ok) {
+        state.scannerRunning = true;
+        updateScannerButton();
+        updateStatus('active');
+        startAutoRefresh();
+        showToast('▶ Scanner started', 'success');
+        // Fetch deals immediately to show data
+        setTimeout(() => scanDeals(), 3000);
+      }
+    }
+  } catch (e) {
+    showToast('Failed to toggle scanner: ' + e.message, 'error');
+  }
+
+  btn.disabled = false;
+}
+
+function updateScannerButton() {
+  const btn = document.getElementById('btn-refresh');
+  const fab = document.getElementById('fab-scan');
+  if (state.scannerRunning) {
+    btn.classList.remove('scanner-stopped');
+    btn.classList.add('scanner-running');
+    btn.querySelector('span').textContent = '⏹ Stop';
+    btn.title = 'Stop Scanner';
+    if (fab) {
+      fab.classList.remove('scanner-stopped');
+      fab.classList.add('scanner-running');
+      fab.title = 'Stop Scanner';
+      fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+    }
+  } else {
+    btn.classList.remove('scanner-running');
+    btn.classList.add('scanner-stopped');
+    btn.querySelector('span').textContent = '▶ Start';
+    btn.title = 'Start Scanner';
+    if (fab) {
+      fab.classList.remove('scanner-running');
+      fab.classList.add('scanner-stopped');
+      fab.title = 'Start Scanner';
+      fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+    }
+  }
 }
 
 // ===== SSE LIVE UPDATES =====
@@ -1282,9 +1348,23 @@ function connectSSE() {
       try {
         const data = JSON.parse(e.data);
         if (data.type === 'connected') {
-          state.serverInterval = data.intervalSec || 120;
-          if (data.nextScanIn > 0) state.countdown = Math.min(data.nextScanIn, state.serverInterval);
-          console.log('[SSE] Connected —', data.dealCount, 'deals');
+          state.serverInterval = data.intervalSec || 150;
+          if (typeof data.running === 'boolean') {
+            state.scannerRunning = data.running;
+            updateScannerButton();
+          }
+          if (data.nextScanIn > 0 && state.scannerRunning) state.countdown = Math.min(data.nextScanIn, state.serverInterval);
+          console.log('[SSE] Connected —', data.dealCount, 'deals, scanner:', data.running ? 'running' : 'stopped');
+        } else if (data.type === 'scanner-state') {
+          state.scannerRunning = data.running;
+          updateScannerButton();
+          updateStatus(data.running ? 'active' : 'stopped');
+          if (!data.running) {
+            state.countdown = 0;
+            document.getElementById('countdown').textContent = '--:--';
+            const hc = document.getElementById('header-countdown');
+            if (hc) hc.textContent = '--:--';
+          }
         } else if (data.type === 'scan-complete') {
           state.serverInterval = data.nextScanIn || state.serverInterval;
           state.countdown = data.nextScanIn || state.serverInterval;
@@ -1907,13 +1987,15 @@ function updateStats() {
 function updateStatus(s) {
   const el = document.getElementById('status-indicator');
   const txt = document.getElementById('status-text');
-  el.className = 'status-indicator' + (s === 'active' ? ' active' : s === 'error' ? ' error' : s === 'ratelimited' ? ' ratelimited' : '');
+  el.className = 'status-indicator' + (s === 'active' ? ' active' : s === 'error' ? ' error' : s === 'ratelimited' ? ' ratelimited' : s === 'stopped' ? ' stopped' : '');
   if (s === 'active') {
     txt.textContent = state.scannerActive ? '🔴 Live' : 'Connecting...';
   } else if (s === 'scanning') {
     txt.textContent = 'Scanning...';
   } else if (s === 'ratelimited') {
     txt.textContent = '⚠️ Rate Limited';
+  } else if (s === 'stopped') {
+    txt.textContent = '⏹ Stopped';
   } else if (s === 'error') {
     txt.textContent = 'Error';
   } else {
@@ -1950,8 +2032,15 @@ function startAutoRefresh() {
   document.getElementById('scan-timer').style.display = '';
   if (!state.countdown || state.countdown <= 0) state.countdown = interval;
   state.timer = setInterval(() => {
+    // Only countdown when scanner is running
+    if (!state.scannerRunning) {
+      document.getElementById('countdown').textContent = '--:--';
+      const hc = document.getElementById('header-countdown');
+      if (hc) hc.textContent = '--:--';
+      return;
+    }
     state.countdown--;
-    if (state.countdown <= 0) { scanDeals(); state.countdown = interval; }
+    if (state.countdown <= 0) { fetchDealsQuiet(); state.countdown = interval; }
     const m = Math.floor(state.countdown / 60);
     const s = state.countdown % 60;
     const countdownStr = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;

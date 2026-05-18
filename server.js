@@ -626,6 +626,7 @@ const server = http.createServer(async (req, res) => {
       lastScan: scanner.lastScanTime ? new Date(scanner.lastScanTime).toISOString() : null,
       scanCount: scanner.scanCount,
       isScanning: scanner.isScanning,
+      running: scanner.running,
       totalNotified: scanner.totalNotified
     }));
     return;
@@ -637,11 +638,12 @@ const server = http.createServer(async (req, res) => {
       lastScan: scanner.lastScanTime ? new Date(scanner.lastScanTime).toISOString() : null,
       scanCount: scanner.scanCount,
       isScanning: scanner.isScanning,
+      running: scanner.running,
       lastError: scanner.lastError,
       dealsCount: scanner.currentDeals.length,
       intervalSec: scanner.intervalSec,
       totalNotified: scanner.totalNotified,
-      nextScanIn: scanner.intervalSec - Math.floor((Date.now() - (scanner.lastScanTime || 0)) / 1000),
+      nextScanIn: scanner.running ? scanner.intervalSec - Math.floor((Date.now() - (scanner.lastScanTime || 0)) / 1000) : 0,
       rateLimited: scanner.consecutive429 > 0,
       backoffSec: scanner.backoffSec,
       consecutive429: scanner.consecutive429
@@ -649,17 +651,34 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // === PROTECTED: Force scan now ===
-  if (req.method === 'POST' && urlPath === '/api/scan') {
-    if (scanner.isScanning) {
-      res.writeHead(429, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Scan already in progress' }));
+  // === PROTECTED: Scanner Start/Stop ===
+  if (req.method === 'POST' && urlPath === '/api/scanner/start') {
+    if (scanner.running) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, message: 'Scanner already running' }));
       return;
     }
-    // Run scan async, respond immediately
-    scannerDoScan().catch(e => console.error('[Scanner] Manual scan error:', e));
+    scanner.running = true;
+    scannerStart(true);
+    console.log(`[${new Date().toLocaleTimeString()}] ▶️  Scanner started by user`);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, message: 'Scan started' }));
+    res.end(JSON.stringify({ ok: true, message: 'Scanner started' }));
+    broadcastSSE({ type: 'scanner-state', running: true });
+    return;
+  }
+
+  if (req.method === 'POST' && urlPath === '/api/scanner/stop') {
+    if (!scanner.running) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, message: 'Scanner already stopped' }));
+      return;
+    }
+    scanner.running = false;
+    scannerClearTimer();
+    console.log(`[${new Date().toLocaleTimeString()}] ⏹️  Scanner stopped by user`);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, message: 'Scanner stopped' }));
+    broadcastSSE({ type: 'scanner-state', running: false });
     return;
   }
 
@@ -677,7 +696,7 @@ const server = http.createServer(async (req, res) => {
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no'
     });
-    res.write(`data: ${JSON.stringify({ type: 'connected', scanCount: scanner.scanCount, dealCount: scanner.currentDeals.length, intervalSec: scanner.intervalSec, nextScanIn: scanner.intervalSec - Math.floor((Date.now() - (scanner.lastScanTime || 0)) / 1000) })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'connected', scanCount: scanner.scanCount, dealCount: scanner.currentDeals.length, intervalSec: scanner.intervalSec, running: scanner.running, nextScanIn: scanner.running ? scanner.intervalSec - Math.floor((Date.now() - (scanner.lastScanTime || 0)) / 1000) : 0 })}\n\n`);
     sseClients.add(res);
     req.on('close', () => sseClients.delete(res));
     return;
@@ -803,10 +822,11 @@ const scanner = {
   currentDeals: [],
   seenIds: new Set(),     // In-memory seen IDs (loaded from disk once on boot)
   isScanning: false,
+  running: true,          // Scanner on/off state (user-controlled start/stop)
   lastScanTime: 0,
   scanCount: 0,
   lastError: null,
-  intervalSec: 120,
+  intervalSec: 150,       // Default 150s (2.5min) — fits 1000 daily API limit
   timer: null,
   isFirstScan: true,
   totalNotified: 0,
@@ -1582,7 +1602,7 @@ function scannerApplyBackoff(backoffSec) {
 function scannerRestoreNormalInterval() {
   scannerClearTimer();
   const settings = loadSettings() || {};
-  scanner.intervalSec = Math.max(90, settings.refreshInterval || 120);
+  scanner.intervalSec = Math.max(90, settings.refreshInterval || 150);
   console.log(`  ⏱️  Restored normal interval: every ${scanner.intervalSec}s`);
   scanner.timer = setInterval(() => {
     scannerDoScan().catch(e => console.error('[Scanner] Scan error:', e));
@@ -1594,8 +1614,8 @@ function scannerStart(coldStart = false) {
   scannerClearTimer();
 
   const settings = loadSettings() || {};
-  // Minimum 90s to be respectful to the API (was 60s, caused rate limiting)
-  scanner.intervalSec = Math.max(90, settings.refreshInterval || 120);
+  // Minimum 90s to be respectful to the API — default 150s fits 1000 daily limit
+  scanner.intervalSec = Math.max(90, settings.refreshInterval || 150);
   // Reset backoff state on manual restart
   scanner.consecutive429 = 0;
   scanner.backoffSec = 0;
