@@ -42,6 +42,7 @@ const state = {
   scannerRunning: true,   // Scanner on/off state (start/stop)
   serverInterval: 150,
   activeCategories: new Set(['PC', 'TECH']),  // Dynamic tag filter — PC & TECH selected by default
+  activeConditions: new Set(['new', 'openbox', 'certified', 'refurbished', 'reconditioned']),  // Condition visibility filter
   unreadAlerts: 0  // Badge counter for unread notifications
 };
 
@@ -505,6 +506,21 @@ function bindEvents() {
     chip.addEventListener('click', function() {
       document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
       this.classList.add('active');
+      renderDeals();
+    });
+  });
+
+  // Condition filter chips (toggle show/hide per condition)
+  document.querySelectorAll('.cond-chip').forEach(chip => {
+    chip.addEventListener('click', function() {
+      const cond = this.dataset.cond;
+      if (state.activeConditions.has(cond)) {
+        state.activeConditions.delete(cond);
+        this.classList.remove('active');
+      } else {
+        state.activeConditions.add(cond);
+        this.classList.add('active');
+      }
       renderDeals();
     });
   });
@@ -1548,6 +1564,29 @@ function renderDeals() {
 
   // Hide deals matching blocked words
   filtered = filtered.filter(d => !isBlockedDeal(d));
+
+  // Condition visibility filter
+  if (state.activeConditions.size < 5) {  // Only filter if user deactivated something
+    filtered = filtered.filter(d => {
+      const cond = (d.condition || '').toLowerCase().trim();
+      if (!cond || (cond.includes('new') && !cond.includes('refurb') && !cond.includes('recondition'))) {
+        return state.activeConditions.has('new');
+      }
+      if (cond.includes('certified') && cond.includes('refurb')) {
+        return state.activeConditions.has('certified');
+      }
+      if (cond.includes('open box') || cond.includes('openbox')) {
+        return state.activeConditions.has('openbox');
+      }
+      if (cond.includes('refurb') || cond.includes('refurbished')) {
+        return state.activeConditions.has('refurbished');
+      }
+      if (cond.includes('recondition') || cond.includes('factory')) {
+        return state.activeConditions.has('reconditioned');
+      }
+      return true;  // Unknown condition → show
+    });
+  }
 
   // Keyword button filter (OR logic) — only applies on 'all' and 'great' views
   // When using specific filters (hot, new, ending, warehouse, favorites),

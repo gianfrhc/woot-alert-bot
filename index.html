@@ -510,10 +510,19 @@
 
             <!-- Filters -->
             <div class="filter-bar">
-                <div class="search-box">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    <input type="text" id="search-input" placeholder="Search deals..." aria-label="Search deals">
-                    <button class="search-clear" id="search-clear" style="display:none" title="Clear search" aria-label="Clear search">✕</button>
+                <div class="search-condition-row">
+                    <div class="search-box">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input type="text" id="search-input" placeholder="Search deals..." aria-label="Search deals">
+                        <button class="search-clear" id="search-clear" style="display:none" title="Clear search" aria-label="Clear search">✕</button>
+                    </div>
+                    <div class="condition-filter-chips" id="condition-filter-chips">
+                        <button class="cond-chip active" data-cond="new" title="New">🆕 New</button>
+                        <button class="cond-chip active" data-cond="openbox" title="Open Box">📦 Open Box</button>
+                        <button class="cond-chip active" data-cond="certified" title="Certified Refurbished">✅ Certified</button>
+                        <button class="cond-chip active" data-cond="refurbished" title="Refurbished">🔧 Refurb</button>
+                        <button class="cond-chip active" data-cond="reconditioned" title="Factory Reconditioned">🏭 Recond.</button>
+                    </div>
                 </div>
                 <button class="btn btn-icon btn-view-toggle" id="btn-view-toggle" title="Toggle Grid/List View">
                     <svg class="icon-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
