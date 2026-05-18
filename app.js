@@ -1450,15 +1450,46 @@ async function fetchDealsQuiet() {
     if (!res.ok) return;
     const data = await res.json();
     const deals = data.deals || [];
+
+    // Sync scanner state from server
+    if (typeof data.running === 'boolean') {
+      state.scannerRunning = data.running;
+      updateScannerButton();
+    }
+
     const isFirstLoad = state.seenOfferIds.size === 0;
     const newDeals = deals.filter(d => !state.seenOfferIds.has(d.id));
     deals.forEach(d => state.seenOfferIds.add(d.id));
     saveSeenIds();
     state.deals = deals;
     if (!isFirstLoad && newDeals.length > 0) checkAlerts(newDeals);
+
+    // Hide skeleton loader and update status
+    showLoading(false);
     renderDeals();
     updateStats();
-  } catch(e) {}
+    if (deals.length > 0) state.scannerActive = true;
+    updateStatus(state.scannerRunning ? 'active' : 'stopped');
+
+    // Sync countdown with server
+    try {
+      const statusRes = await fetch('/api/scan-status');
+      if (statusRes.ok) {
+        const status = await statusRes.json();
+        state.serverInterval = status.intervalSec || 150;
+        if (status.nextScanIn > 0 && state.scannerRunning) {
+          state.countdown = Math.min(status.nextScanIn, state.serverInterval);
+        }
+        if (status.lastScan) {
+          document.getElementById('stat-last-scan').textContent = new Date(status.lastScan).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        }
+      }
+    } catch(e) {}
+  } catch(e) {
+    // Even on error, hide the loading state
+    showLoading(false);
+    updateStatus('error');
+  }
 }
 
 // normalizeAPIItem and dedupeDeals moved to server.js — deals arrive pre-normalized
